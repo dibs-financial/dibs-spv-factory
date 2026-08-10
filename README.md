@@ -26,31 +26,52 @@ Built on [Base44](https://base44.com) with:
 | KYC/AML provider | Sumsub | Global coverage, OFAC/sanctions screening |
 | Alert channels | Slack + WhatsApp + Telegram | Multi-channel compliance escalation |
 | Monitoring agent | Base44 Super Agent | 24/7 scheduled, cross-app, real actions |
+| EIN rotation | Pooled responsible parties | IRS 1-EIN-per-day throttle compliance |
 
 ## Repo Structure
 
 ```
 ├── docs/
-│   └── deep-dive-blueprint.md          # Full technical gap analysis & implementation plan
+│   └── deep-dive-blueprint.md              # Full technical gap analysis & implementation plan
 ├── schemas/
-│   └── entity-definitions.ts            # All entity schema definitions
+│   └── entity-definitions.ts               # All entity schema definitions
 ├── functions/
 │   ├── checkMasterEntityLiabilityNotice.ts  # Statutory § 18-215(b) kill-switch
-│   ├── createSeriesLedgerEntry.ts           # Hash-chained append-only ledger
+│   ├── checkFormationGate.ts                # Formation pipeline pre-flight gate check
+│   ├── createSeriesLedgerEntry.ts           # Hash-chained append-only ledger (with timestamp)
+│   ├── getNextResponsibleParty.ts           # IRS SS-4 EIN throttle rotation
 │   └── logAlert.ts                          # Write-only alert logger for monitoring
 └── workflows/
     └── README.md                            # Workflow configuration docs
 ```
 
-## Phase 0 — Complete
+## Phase 0 — Complete ✅
 
-- ✅ 10 new entity schemas created (MasterEntity, SeriesRegistryLog, AlertLog, EINRequest, ResponsibleParty, BankSubAccount, CapitalCall, FormDFiling, BlueSkyFiling, DocumentSet)
-- ✅ 15 new fields added to Spv entity (series_type, formation_timeline_status, ledger hashes, etc.)
-- ✅ 4 new fields added to Investor entity (OFAC screening, e-signature)
-- ✅ 3 backend functions deployed and tested
-- ✅ 2 scheduled workflows active (Covenant Monitor hourly, Form D Tracker daily)
-- ✅ Hash-chain ledger verified (SHA-256, tamper-evident)
-- ✅ Statutory kill-switch verified (blocks formation if § 18-215(b) notice missing)
+- 10 new entity schemas created (MasterEntity, SeriesRegistryLog, AlertLog, EINRequest, ResponsibleParty, BankSubAccount, CapitalCall, FormDFiling, BlueSkyFiling, DocumentSet)
+- 15 new fields added to Spv entity (series_type, formation_timeline_status, ledger hashes, etc.)
+- 4 new fields added to Investor entity (OFAC screening, e-signature)
+- 3 backend functions deployed and tested
+- 2 scheduled workflows active (Covenant Monitor hourly, Form D Tracker daily)
+- Hash-chain ledger verified (SHA-256, tamper-evident)
+- Statutory kill-switch verified (blocks formation if § 18-215(b) notice missing)
+
+## Phase 1 — Complete ✅
+
+- SeriesRegistryLog schema updated with `timestamp` field for independent audit verification
+- `checkFormationGate` backend function deployed (statutory gate + escalation check before every stage transition)
+- `getNextResponsibleParty` backend function deployed (IRS EIN throttle rotation with 3 pooled signatories)
+- `createSeriesLedgerEntry` updated to store exact hash-computation timestamp
+- SPV Formation Pipeline workflow active (every 15 min, 13-stage pipeline with hash-chain logging)
+- EIN rotation verified (James → Sarah → Marcus, daily throttle enforced)
+- Formation gate verified (statutory check passes, escalation blocks detected)
+
+## Active Workflows
+
+| Workflow | Cadence | Purpose |
+|---|---|---|
+| DIBS Covenant Monitor | Hourly | LTV, milestones, KYC, OFAC, Form D monitoring |
+| Form D Deadline Tracker | Daily 8am UTC | 15-day statutory deadline countdown |
+| SPV Formation Pipeline | Every 15 min | 13-stage formation with statutory gate + hash-chain |
 
 ## License
 

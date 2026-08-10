@@ -5,6 +5,9 @@ import { createClientFromRequest } from 'npm:@base44/sdk@0.8.31';
  * Creates a tamper-evident append-only entry in SeriesRegistryLog.
  * Each entry's hash is SHA-256(previous_hash + spv_id + event_type + timestamp + event_data_json).
  * This ledger IS the legal record substitute for protected series under § 18-215(b).
+ * 
+ * The timestamp field stores the exact ISO timestamp used in hash computation
+ * so external auditors can independently verify the chain.
  */
 Deno.serve(async (req: Request) => {
   const base44 = createClientFromRequest(req);
@@ -44,14 +47,15 @@ Deno.serve(async (req: Request) => {
       .map(b => b.toString(16).padStart(2, "0"))
       .join("");
 
-    // Create the append-only entry
+    // Create the append-only entry — timestamp stored for audit verification
     const entry = await base44.entities.SeriesRegistryLog.create({
       spv_id,
       event_type,
       event_data: event_data || {},
       hash,
       previous_hash: previousHash,
-      actor: actor || "system"
+      actor: actor || "system",
+      timestamp
     });
 
     return Response.json({

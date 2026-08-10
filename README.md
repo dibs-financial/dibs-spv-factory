@@ -8,14 +8,14 @@ Delaware Series LLC SPV formation platform with a 72-hour SLA. Automates protect
 - **Series Ledger Layer** — Hash-chained, tamper-evident append-only log (legal record substitute for protected series)
 - **Financial Segregation Layer** — Per-series bank sub-accounts via partner bank sweep
 - **Compliance & Filing Layer** — Form D (EDGAR), blue sky notices, EIN (SS-4) automation
-- **Investor Experience Layer** — KYC/AML (Sumsub), e-signature, capital calls, reporting
+- **Investor Experience Layer** — KYC/AML (Sumsub), e-signature, capital calls, first-sale tracking
 
 ## Platform
 
 Built on [Base44](https://base44.com) with:
 - **Zevia app** — Deal data model (Spv, Sponsor, Investor, Subscription, KycSession, ComplianceRecord, FormationStage)
 - **Elara app (Super Agent)** — Factory operational layer (entity schemas, backend functions, workflows)
-- Cross-app entity reads for covenant monitoring
+- Cross-app entity reads for covenant monitoring and investor onboarding
 
 ## Key Design Decisions
 
@@ -27,43 +27,55 @@ Built on [Base44](https://base44.com) with:
 | Alert channels | Slack + WhatsApp + Telegram | Multi-channel compliance escalation |
 | Monitoring agent | Base44 Super Agent | 24/7 scheduled, cross-app, real actions |
 | EIN rotation | Pooled responsible parties | IRS 1-EIN-per-day throttle compliance |
+| First-sale tracking | Discrete timestamps | Soft circle ≠ first sale; irrevocable commitment starts Form D clock |
 
 ## Repo Structure
 
 ```
 ├── docs/
-│   └── deep-dive-blueprint.md              # Full technical gap analysis & implementation plan
+│   ├── conceptual-architecture.md       # Full canonical architecture (15 sections)
+│   ├── deep-dive-blueprint.md            # Technical gap analysis & implementation plan
+│   └── schema-gap-analysis.md            # Schema alignment with canonical data model
 ├── schemas/
-│   └── entity-definitions.ts               # All entity schema definitions
+│   └── entity-definitions.ts             # All entity schema definitions
 ├── functions/
 │   ├── checkMasterEntityLiabilityNotice.ts  # Statutory § 18-215(b) kill-switch
 │   ├── checkFormationGate.ts                # Formation pipeline pre-flight gate check
 │   ├── createSeriesLedgerEntry.ts           # Hash-chained append-only ledger (with timestamp)
 │   ├── getNextResponsibleParty.ts           # IRS SS-4 EIN throttle rotation
+│   ├── triggerFirstSaleClock.ts             # Form D 15-day deadline engine
+│   ├── processCapitalCall.ts                # Capital call creation for executed subscriptions
 │   └── logAlert.ts                          # Write-only alert logger for monitoring
 └── workflows/
-    └── README.md                            # Workflow configuration docs
+    └── README.md                            # 4 workflow configurations
 ```
 
 ## Phase 0 — Complete ✅
 
-- 10 new entity schemas created (MasterEntity, SeriesRegistryLog, AlertLog, EINRequest, ResponsibleParty, BankSubAccount, CapitalCall, FormDFiling, BlueSkyFiling, DocumentSet)
-- 15 new fields added to Spv entity (series_type, formation_timeline_status, ledger hashes, etc.)
-- 4 new fields added to Investor entity (OFAC screening, e-signature)
+- 10 entity schemas created
 - 3 backend functions deployed and tested
-- 2 scheduled workflows active (Covenant Monitor hourly, Form D Tracker daily)
+- 2 workflows active
 - Hash-chain ledger verified (SHA-256, tamper-evident)
-- Statutory kill-switch verified (blocks formation if § 18-215(b) notice missing)
+- Statutory kill-switch verified
 
 ## Phase 1 — Complete ✅
 
-- SeriesRegistryLog schema updated with `timestamp` field for independent audit verification
-- `checkFormationGate` backend function deployed (statutory gate + escalation check before every stage transition)
-- `getNextResponsibleParty` backend function deployed (IRS EIN throttle rotation with 3 pooled signatories)
-- `createSeriesLedgerEntry` updated to store exact hash-computation timestamp
-- SPV Formation Pipeline workflow active (every 15 min, 13-stage pipeline with hash-chain logging)
-- EIN rotation verified (James → Sarah → Marcus, daily throttle enforced)
-- Formation gate verified (statutory check passes, escalation blocks detected)
+- SeriesRegistryLog schema updated with timestamp + audit fields
+- checkFormationGate deployed (statutory + escalation gate)
+- getNextResponsibleParty deployed (3 pooled signatories, EIN throttle)
+- SPV Formation Pipeline workflow active (15-min, 13 stages)
+- EIN rotation verified
+
+## Phase 2 — Complete ✅
+
+- Schema gap analysis completed against canonical data model
+- MasterEntity, SeriesRegistryLog, EINRequest, DocumentSet, FormDFiling schemas updated
+- DealConfiguration entity created (18 fields, waterfall/closing conditions)
+- triggerFirstSaleClock deployed (Form D deadline engine, soft circle guardrail)
+- processCapitalCall deployed (capital call creation with duplicate prevention)
+- Investor Onboarding Monitor workflow active (hourly, KYC/AML escalation)
+- First-sale tracking with 6 discrete timestamps (soft circle → irrevocable → funds cleared)
+- Form D clock verified (15-day deadline, soft circle correctly excluded)
 
 ## Active Workflows
 
@@ -72,6 +84,7 @@ Built on [Base44](https://base44.com) with:
 | DIBS Covenant Monitor | Hourly | LTV, milestones, KYC, OFAC, Form D monitoring |
 | Form D Deadline Tracker | Daily 8am UTC | 15-day statutory deadline countdown |
 | SPV Formation Pipeline | Every 15 min | 13-stage formation with statutory gate + hash-chain |
+| Investor Onboarding Monitor | Hourly | KYC/AML escalation, capital calls, first-sale tracking |
 
 ## License
 

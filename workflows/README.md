@@ -18,3 +18,9 @@ Workflows are deployed and managed via the Base44 platform. This directory docum
 - **Activity:** `invoke_superagent_step` — reads pending SPVs from Zevia app, advances through 13-stage formation pipeline
 - **Pipeline Stages:** INTAKE → SERIES_CREATED → EIN_PENDING → EIN_RECEIVED → BANK_PENDING → BANK_READY → DOCS_PENDING → DOCS_EXECUTED → KYC_BATCH_PENDING → KYC_COMPLETE → CAPITAL_CALL_PENDING → CAPITAL_RECEIVED → REGULATORY_PENDING → INVESTOR_READY
 - **Guardrails:** Statutory gate checked before every transition. Every transition logged to hash-chain ledger. Escalates on any gate failure.
+
+## Investor Onboarding Monitor
+- **Trigger:** Scheduled, hourly (cron: `0 * * * *`, UTC)
+- **Activity:** `invoke_superagent_step` — monitors investor KYC/AML status, capital calls, first-sale clock, Form D deadlines
+- **Scope:** KYC/AML escalation, capital call processing, irrevocable commitment tracking, Form D deadline monitoring
+- **Guardrails:** KYC/AML hits escalated to human review. Soft circles never trigger Form D clock. Cross-series data never exposed.

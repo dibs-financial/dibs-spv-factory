@@ -63,3 +63,31 @@ Dual license. See NOTICE.md, LICENSE-MIT, and LICENSE-PROPRIETARY.
 
 Docs and published demonstration UI: MIT.
 functions/, schemas/, Phase 3 pack, legal templates, private services: All Rights Reserved, DIBS Financial.
+
+NOTICE.md, LICENSE, LICENSE-MIT, LICENSE-PROPRIETARY, CONTRIBUTING.md
+docs/
+schemas/entity-definitions.ts
+functions/   (operational engine — LICENSE-PROPRIETARY)
+workflows/README.md
+
+## Status
+
+Formation gate, ledger append, EIN rotation, Form D timestamps, and capital-call create exist as source in this dump. Runtime lives on Base44. Control gaps remain (ledger mutability, EIN race, RLS).
+
+Phase 3 pack (document generate + e-sign) is not in this repository. All Rights Reserved.
+
+Connectors (IRS, EDGAR, Sumsub, bank, e-sign vendor) are specified, not shipped here.
+
+## Active workflows (documented)
+
+DIBS Covenant Monitor — Hourly — LTV, milestones, KYC, OFAC, Form D — writes AlertLog
+Form D Deadline Tracker — Daily 8am UTC — Operational +15 calendar-day clock. Not counsel's Rule 503 calendar.
+SPV Formation Pipeline — Every 15 min — Stage hops with statutory gate
+Investor Onboarding Monitor — Hourly — KYC escalation, capital calls, first-sale
+
+## License
+
+Dual license. See NOTICE.md, LICENSE-MIT, and LICENSE-PROPRIETARY.
+
+Docs and published demonstration UI: MIT.
+functions/, schemas/, Phase 3 pack, legal templates, private services: All Rights Reserved, DIBS Financial.

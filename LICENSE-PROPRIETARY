@@ -1,0 +1,15 @@
+Copyright (c) 2026 DIBS Financial. All rights reserved.
+
+This file covers the operational engine and the Phase 3 pack:
+functions/, schemas/, legal templates, proprietary services, IRS/EDGAR/e-sign
+connectors, and any document generation or compliance engine not listed as MIT
+in NOTICE.md.
+
+No license is granted to use, copy, modify, merge, publish, distribute,
+sublicense, or sell copies of this software except as expressly authorized
+in writing by DIBS Financial.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND.
+This platform is operational software. It is not legal advice, tax advice,
+broker-dealer activity, investment-advisory activity, banking, custody,
+or a substitute for counsel.

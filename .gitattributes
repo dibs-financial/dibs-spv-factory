@@ -1,0 +1,3 @@
+/legal_templates/** export-ignore
+/proprietary/** export-ignore
+/private-services/** export-ignore

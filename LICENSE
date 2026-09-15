@@ -1,0 +1,10 @@
+DIBS SPV FACTORY — dual license
+
+See NOTICE.md.
+
+- LICENSE-MIT — documentation and published demonstration UI
+- LICENSE-PROPRIETARY — functions/, schemas/, Phase 3 pack, legal templates, private services
+
+If you are looking at a source tarball: /legal_templates, /proprietary, and
+/private-services are export-ignored and must not appear. If they do, treat
+them as All Rights Reserved.

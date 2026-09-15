@@ -1,5 +1,9 @@
 # DIBS SPV Factory
 
+Important: This repository is the open-core dump — docs, schemas as published, and demonstration UI. Dual license: see NOTICE.md. Formation engine, IRS/EDGAR, counsel templates, and the Phase 3 pack are commercial (LICENSE-PROPRIETARY).
+
+72-hour funding-readiness applies only to eligible, pre-approved Delaware Series LLC structures, subject to EIN, banking, eligibility, state processing, and counsel review.
+
 Delaware Series LLC SPV formation platform with a 72-hour SLA. Automates protected series creation, EIN filing, bank account provisioning, KYC/AML screening, document generation, and regulatory compliance (Form D, blue sky) for special purpose vehicles.
 
 ## Architecture

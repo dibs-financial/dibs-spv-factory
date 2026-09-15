@@ -92,4 +92,4 @@ Built on [Base44](https://base44.com) with:
 
 ## License
 
-Proprietary — DIBS Financial
+Dual license. See NOTICE.md, LICENSE-MIT, and LICENSE-PROPRIETARY.

@@ -15,12 +15,12 @@ Each stream is keyed to an event the factory already records, so invoicing can b
 | Series formation | `SERIES_CREATED` ledger event | 3,500 standard; 6,500 on the 72-hour track |
 | Series administration | Formation and each anniversary, per active series | 2,400 per year |
 | Investor onboarding | `KYC_PASS` per investor | 95 per investor (KYC/AML batch, e-signature, capital call) |
-| Regulatory filings | `FORM_D_FILED`, `BLUE_SKY_FILED` | 600 per Form D; 300 per state notice; state fees at cost |
+| Regulatory filings | `FORM_D_FILED`, `BLUE_SKY_FILED` | 600 per Form D, always billed separately from formation; 300 per state notice; state fees at cost |
 | Late-filing remediation | `FORM_D_OVERDUE` alert resolved | 1,500 flat |
 | Registered-series conversion | `series_type` set to REGISTERED | 2,500 plus Delaware fees at cost |
 | Audit evidence package | `verifySeriesLedger` export on request | 750 per package; included in Platform tier |
 | EIN manual filing | `EIN_PENDING_MANUAL` hold | 250 per paper SS-4 |
-| Platform license | White-label or API use of the engine under LICENSE-PROPRIETARY | 2,500 per month plus 1,200 per series, or 30,000 per year with 25 series included |
+| Platform license | White-label or API use of the engine under LICENSE-PROPRIETARY | 60,000 per year with 25 series included, 2,000 per additional series; one published price, no introductory discounts, 24-month price lock |
 
 ## Packages
 
@@ -62,8 +62,10 @@ The per-deal fee schedule is the `fee_schedule` JSON column on `deal_configurati
 
 A billing runner (not yet built) would watch `SERIES_CREATED`, `KYC_PASS`, `FORM_D_FILED` and `BLUE_SKY_FILED` plus the administration anniversary, write one `billing_events` row per charge, and hand the rows to Stripe or an invoicing tool.
 
-## Open decisions
+## Decisions
 
-1. Whether the standard formation fee includes the first Form D or charges it separately.
-2. Whether administration is billed per series or per master.
-3. The platform license floor; 30,000 per year is set to win the first three operators and should rise once reference customers exist.
+Decided 2026-09-21, taking the road that is right even where it is harder or less lucrative.
+
+1. **Form D is billed separately from formation, never bundled.** The filing obligation depends on whether and when a first sale occurs, which counsel determines, not the factory. Bundling would imply DIBS decides that a filing is required and would hide a regulatory pass-through inside a product price. Separate billing keeps the line between the factory and counsel visible on every invoice.
+2. **Administration is billed per series, not per master.** Each protected series must keep its own books, records and accounts under 6 Del. C. § 18-215(b), and the factory monitors, ledgers and files per series. A per-master fee would let a sponsor hide series count, which is exactly the number that drives the compliance work and the liability isolation.
+3. **The platform license is priced at its real value from day one:** 60,000 per year with 25 series included, 2,000 per additional series, one published price, no introductory discount, and a 24-month price lock for every operator. Winning early operators at 30,000 and raising later would underprice a compliance engine, starve counsel-liaison and review time, and put early customers on a bait-and-switch.

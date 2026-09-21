@@ -3,7 +3,7 @@
  * supabase/migrations/20260921000000_dibs_spv_factory.sql; keep this file in
  * step with it. Enumerations come from ./constants.ts.
  */
-import type { AlertSeverity, AlertType, FormDStatus, LedgerEventType } from "./constants.ts";
+import type { AlertSeverity, AlertType, FormationStage, FormDStatus, LedgerEventType } from "./constants.ts";
 
 export interface ServerFields {
   id: string;
@@ -108,5 +108,41 @@ export interface FormDFilingRow extends ServerFields {
   irrevocable_commitment_at: string | null;
   funds_received_at: string | null;
   funds_cleared_at: string | null;
+  updated_at: string;
+}
+
+export interface BankSubAccountRow extends ServerFields {
+  spv_id: string;
+  bank_partner: string | null;
+  account_status: "PENDING" | "PROVISIONAL" | "ACTIVE" | "FROZEN" | "CLOSED";
+  provisioned_at: string | null;
+  updated_at: string;
+}
+
+export interface DocumentSetRow extends ServerFields {
+  spv_id: string;
+  document_type: string;
+  status: "GENERATED" | "SENT_FOR_SIGNATURE" | "EXECUTED" | "EXPIRED" | "BLOCKED";
+  executed_at: string | null;
+  updated_at: string;
+}
+
+export interface BlueSkyFilingRow extends ServerFields {
+  spv_id: string;
+  jurisdiction: string;
+  status: "PENDING" | "FILED" | "OVERDUE" | "NOT_REQUIRED";
+  filed_date: string | null;
+  updated_at: string;
+}
+
+export interface SpvPipelineRow {
+  spv_id: string;
+  stage: FormationStage;
+  stage_before_hold: FormationStage | null;
+  hold_reason: string | null;
+  wait_reason: string | null;
+  last_transition_at: string | null;
+  last_evaluated_at: string | null;
+  created_at: string;
   updated_at: string;
 }

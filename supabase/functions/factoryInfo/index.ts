@@ -14,7 +14,19 @@ export const FACTORY_FUNCTIONS = {
   getNextResponsibleParty: "POST",
   processCapitalCall: "POST",
   triggerFirstSaleClock: "POST",
+  "dibs-covenant-monitor": "POST",
+  "dibs-form-d-deadline-tracker": "POST",
+  "dibs-spv-formation-pipeline": "POST",
+  "dibs-investor-onboarding-monitor": "POST",
 } as const;
+
+/** Scheduled runners: service-role token only; invoked by pg_cron. */
+export const FACTORY_RUNNERS = [
+  "dibs-covenant-monitor",
+  "dibs-form-d-deadline-tracker",
+  "dibs-spv-formation-pipeline",
+  "dibs-investor-onboarding-monitor",
+] as const;
 
 /**
  * Factory configuration and health. Lets a frontend or integration confirm it
@@ -39,6 +51,7 @@ serveFunction(({ caller }) => {
       name,
       method,
       url: settings.base_url ? `${settings.base_url}/${name}` : null,
+      runner: (FACTORY_RUNNERS as readonly string[]).includes(name),
     })),
     form_d_window_days: FORM_D_FILING_WINDOW_DAYS,
     ledger_hash_preimage: LEDGER_HASH_PREIMAGE,

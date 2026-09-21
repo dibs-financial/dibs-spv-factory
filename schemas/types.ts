@@ -146,3 +146,26 @@ export interface SpvPipelineRow {
   created_at: string;
   updated_at: string;
 }
+
+export type PricingTier = "SPONSOR" | "FUND" | "PLATFORM";
+
+/**
+ * Shape of deal_configurations.fee_schedule. All amounts are flat fees in
+ * `currency`; none is a percentage of capital raised. Defaults per tier are
+ * in ./pricing.ts; rationale in docs/pricing.md.
+ */
+export interface FeeSchedule {
+  tier: PricingTier;
+  formation_fee: number;
+  rush_track: boolean;
+  rush_formation_fee: number;
+  admin_fee_annual: number;
+  onboarding_fee_per_investor: number;
+  form_d_fee: number;
+  blue_sky_fee_per_state: number;
+  late_filing_remediation_fee: number;
+  registered_series_conversion_fee: number;
+  audit_package_fee: number;
+  ein_manual_filing_fee: number;
+  currency: "USD";
+}

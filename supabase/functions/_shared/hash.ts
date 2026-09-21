@@ -1,4 +1,4 @@
-import { LEDGER_GENESIS_HASH } from "../../schemas/constants.ts";
+import { LEDGER_GENESIS_HASH } from "../../../schemas/constants.ts";
 
 /**
  * Deterministic JSON: object keys sorted lexicographically at every depth,

@@ -1,3 +1,5 @@
+> **Historical document.** Written for the original Base44 build. The platform is now Lovable Cloud (Supabase); the canonical schema is `supabase/migrations/` and the functions are under `supabase/functions/`. Entity and app names below refer to the Base44 layout.
+
 # DIBS SPV Factory — Implementation Gap Analysis & Technical Deep-Dive
 
 ## 1. Current State Inventory

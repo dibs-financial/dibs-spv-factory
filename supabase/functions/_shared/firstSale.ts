@@ -1,16 +1,16 @@
-import { type CommitmentType, FORM_D_FILING_WINDOW_DAYS, type FormDStatus } from "../../schemas/constants.ts";
+import { type CommitmentType, FORM_D_FILING_WINDOW_DAYS, type FormDStatus } from "../../../schemas/constants.ts";
 import { addCalendarDays } from "./time.ts";
 
 /** Subset of FormDFiling the first-sale clock reads and writes. */
 export interface FirstSaleFiling {
-  status?: FormDStatus;
-  first_sale_date?: string;
-  filing_deadline?: string;
-  soft_circle_at?: string;
-  subscription_signed_at?: string;
-  irrevocable_commitment_at?: string;
-  funds_received_at?: string;
-  funds_cleared_at?: string;
+  status?: FormDStatus | null;
+  first_sale_date?: string | null;
+  filing_deadline?: string | null;
+  soft_circle_at?: string | null;
+  subscription_signed_at?: string | null;
+  irrevocable_commitment_at?: string | null;
+  funds_received_at?: string | null;
+  funds_cleared_at?: string | null;
 }
 
 type TimestampField = Exclude<keyof FirstSaleFiling, "status">;
@@ -75,7 +75,7 @@ export function planFirstSale(
     updates,
     clockStarted,
     clockAlreadyRunning,
-    firstSaleDate: clockStarted ? iso : existing?.irrevocable_commitment_at,
-    filingDeadline: clockStarted ? updates.filing_deadline : existing?.filing_deadline,
+    firstSaleDate: clockStarted ? iso : existing?.irrevocable_commitment_at ?? undefined,
+    filingDeadline: clockStarted ? updates.filing_deadline ?? undefined : existing?.filing_deadline ?? undefined,
   };
 }

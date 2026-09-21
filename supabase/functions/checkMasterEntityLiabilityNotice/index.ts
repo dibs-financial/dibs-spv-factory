@@ -1,5 +1,5 @@
-import { ok, serveFunction } from "./_shared/http.ts";
-import { getActiveMasterEntity, masterHasLiabilityNotice } from "./_shared/master.ts";
+import { ok, serveFunction } from "../_shared/http.ts";
+import { getActiveMasterEntity, masterHasLiabilityNotice } from "../_shared/master.ts";
 
 /**
  * Statutory Kill-Switch: Checks that the master Delaware Series LLC
@@ -9,8 +9,8 @@ import { getActiveMasterEntity, masterHasLiabilityNotice } from "./_shared/maste
  * 200 with has_notice=false — HARD BLOCK: notice missing; all formation stops.
  * 422                       — no master, no ACTIVE master, or more than one ACTIVE master.
  */
-serveFunction(async ({ base44 }) => {
-  const master = await getActiveMasterEntity(base44);
+serveFunction(async ({ db }) => {
+  const master = await getActiveMasterEntity(db);
   const hasNotice = masterHasLiabilityNotice(master);
 
   return ok({

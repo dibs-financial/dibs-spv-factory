@@ -16,12 +16,15 @@ Delaware Series LLC SPV formation factory. Coordinates protected-series designat
 
 ## Platform
 
-Built on Base44:
+Built on Lovable (Lovable Cloud, which runs on Supabase):
 
-- Deal-model app — Sponsor, Spv, Investor, Subscription, KycSession, ComplianceRecord, FormationStage
-- Factory ops app — entity schemas, backend functions, workflows
-- Cross-app reads for covenant monitoring and investor onboarding
-- Factory functions cannot write deal-model entities
+- Postgres schema — `supabase/migrations/` is the canonical data model (tables, enums, constraints, RLS)
+- Edge Functions — `supabase/functions/<name>/index.ts` (Deno) are the operational engine
+- Frontend — the Lovable app calls the functions with `supabase.functions.invoke(...)`
+- Schedules — pg_cron jobs call the functions with the service-role key (see `workflows/README.md`)
+- Deal-model tables (Sponsor, Spv, Investor, Subscription, KycSession, ComplianceRecord, FormationStage) live in the same database but are not defined in this repository; factory functions never write them
+
+Integrity that used to be approximated in application code is now enforced by the database: the ledger is append-only by trigger, has one head per SPV by unique constraint, exactly one ACTIVE master entity, one Form D filing per SPV, one open EIN request per SPV, and one capital call per subscription.
 
 ## Key design decisions
 
@@ -40,27 +43,27 @@ First-sale tracking: Irrevocable contractual commitment only. Soft circle is not
 ## Repo structure
 
 NOTICE.md, LICENSE, LICENSE-MIT, LICENSE-PROPRIETARY, CONTRIBUTING.md
-docs/
-schemas/constants.ts          (shared enums — imported by schemas and functions)
-schemas/entity-definitions.ts
-functions/                    (operational engine — LICENSE-PROPRIETARY)
-functions/_shared/            (auth, validation, hash chain, first-sale rules, tests)
+docs/                                   (docs/legacy/ holds the Base44-era entity definitions)
+schemas/constants.ts                    (shared enums — imported by functions; mirrored by the migration)
+schemas/types.ts                        (row types for the tables)
+supabase/migrations/                    (canonical schema — LICENSE-PROPRIETARY)
+supabase/functions/<name>/index.ts      (operational engine — LICENSE-PROPRIETARY)
+supabase/functions/_shared/             (auth, validation, hash chain, first-sale rules, tests)
 workflows/README.md
-deno.json                     (fmt / lint / check / test tasks)
+deno.json                               (fmt / lint / check / test tasks)
 
 ## Status
 
-Formation gate, ledger append and verification, EIN rotation, Form D timestamps, and capital-call create exist as source in this dump. Runtime lives on Base44.
+Formation gate, ledger append and verification, EIN rotation, Form D timestamps, and capital-call create exist as source in this dump. Runtime is Lovable Cloud (Supabase).
 
 Controls in source:
 
-- Every function requires a Base44 service token or a user whose role is in `DIBS_FUNCTION_ALLOWED_ROLES` (default `admin`).
+- Every function requires the Supabase service-role key or a user JWT whose `user_roles` row is in `DIBS_FUNCTION_ALLOWED_ROLES` (default `admin`).
 - Only `IRREVOCABLE_COMMITMENT` starts the Form D clock, measured from the caller-supplied `committed_at`.
-- Ledger entries carry a `sequence` and a documented hash preimage; concurrent appends onto the same head are detected and reported as `LEDGER_FORK`. `verifySeriesLedger` recomputes a whole chain.
+- Ledger entries carry a `sequence` and a documented hash preimage. Unique constraints make a fork impossible; a losing writer retries behind the winner. A trigger rejects UPDATE and DELETE. `verifySeriesLedger` recomputes a whole chain.
 - Escalations are cleared by appending `ESCALATION_RESOLVED`, never by editing the ledger.
-- Responsible-party claims use the IRS Eastern calendar day, an optimistic claim token, and are idempotent per SPV through `EINRequest`.
-
-Control gaps that remain: Base44 has no transactions, so fork and claim detection is post-write rather than preventive; RLS is platform configuration and is not enforced here.
+- Responsible-party claims are a single conditional UPDATE on the IRS Eastern calendar day and are idempotent per SPV through `ein_requests`.
+- RLS is enabled on every table: admins have full access, compliance reviewers and counsel can read the evidence tables, and edge functions write as the service role after authorising the caller.
 
 ## Local checks
 
@@ -71,7 +74,14 @@ deno task ci        # fmt --check, lint, type check, unit tests
 deno task test      # unit tests only
 ```
 
-Functions import shared code from `functions/_shared/` and `schemas/constants.ts`. If the Base44 deployment target only accepts single-file functions, bundle before upload rather than copying the shared code into each file.
+## Deploying on Lovable
+
+1. Apply `supabase/migrations/20260921000000_dibs_spv_factory.sql` (Lovable Cloud applies migrations from `supabase/migrations/` automatically; with the CLI use `supabase db push`).
+2. Deploy the functions: `supabase functions deploy` deploys every folder under `supabase/functions/`. `SUPABASE_URL`, `SUPABASE_ANON_KEY` and `SUPABASE_SERVICE_ROLE_KEY` are provided automatically. Optional secrets: `DIBS_FUNCTION_ALLOWED_ROLES`, `DIBS_EIN_MONTHLY_CAP`.
+3. Grant operators a role: insert into `public.user_roles (user_id, role)`.
+4. Create the schedules in `workflows/README.md` with pg_cron.
+
+Functions share code through `supabase/functions/_shared/`, which the Supabase bundler includes automatically.
 
 Phase 3 pack (document generate + e-sign) is not in this repository. All Rights Reserved.
 
@@ -93,4 +103,4 @@ Dual license. See NOTICE.md, LICENSE-MIT, and LICENSE-PROPRIETARY.
 
 Docs and published demonstration UI: MIT.
 
-functions/, schemas/, Phase 3 pack, legal templates, private services: All Rights Reserved, DIBS Financial.
+supabase/, schemas/, Phase 3 pack, legal templates, private services: All Rights Reserved, DIBS Financial.

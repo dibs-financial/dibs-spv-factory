@@ -1,0 +1,46 @@
+import { ALERT_SEVERITIES, ALERT_TYPES } from "../../../schemas/constants.ts";
+import type { AlertRow } from "../../../schemas/types.ts";
+import { ok, serveFunction } from "../_shared/http.ts";
+import { unwrap } from "../_shared/records.ts";
+import {
+  optionalObject,
+  optionalString,
+  optionalStringArray,
+  requireEnum,
+  requireString,
+} from "../_shared/validate.ts";
+
+/**
+ * Alert Logger — Write-only function for the covenant monitoring layer.
+ * Creates alert_log rows. This is the ONLY write operation the monitoring
+ * agent is permitted to perform. Never writes to SPV, covenant, approval,
+ * or disbursement fields.
+ */
+serveFunction(async ({ db, body }) => {
+  const spv_id = requireString(body, "spv_id");
+  const alert_type = requireEnum(body, "alert_type", ALERT_TYPES);
+  const severity = requireEnum(body, "severity", ALERT_SEVERITIES);
+
+  const entry = unwrap(
+    await db.from("alert_log").insert({
+      spv_id,
+      alert_type,
+      severity,
+      covenant_type: optionalString(body, "covenant_type") ?? null,
+      evidence: optionalObject(body, "evidence") ?? {},
+      deal_id: optionalString(body, "deal_id") ?? null,
+      recommended_action: optionalString(body, "recommended_action") ?? null,
+      escalated_to: optionalString(body, "escalated_to") ?? null,
+      channels_sent: optionalStringArray(body, "channels_sent") ?? [],
+      acknowledged: false,
+    }).select("id").single(),
+  ) as Pick<AlertRow, "id">;
+
+  return ok({
+    alert_id: entry.id,
+    severity,
+    alert_type,
+    spv_id,
+    message: `Alert logged: ${alert_type} (${severity}) for SPV ${spv_id}`,
+  });
+});

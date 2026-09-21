@@ -1,0 +1,48 @@
+import { LEDGER_HASH_PREIMAGE } from "../../../schemas/constants.ts";
+import { ok, serveFunction } from "../_shared/http.ts";
+import { appendLedgerEntry } from "../_shared/ledger.ts";
+import { optionalObject, optionalString, requireString } from "../_shared/validate.ts";
+
+/**
+ * Hash-Chained Series Registry Append
+ *
+ * Creates a tamper-evident append-only entry in series_registry_log. Each
+ * entry's hash is SHA-256 over the preimage documented in schemas/constants.ts
+ * (LEDGER_HASH_PREIMAGE), using canonical (key-sorted) JSON for event_data so
+ * auditors can recompute it from stored rows.
+ *
+ * The ledger is detective evidence of series operations. It is not a
+ * substitute for the separate books, records and accounts required under
+ * 6 Del. C. § 18-215(b).
+ *
+ * Concurrency: unique constraints on (spv_id, sequence) and
+ * (spv_id, previous_hash) make a fork impossible; a losing writer re-reads the
+ * head and retries. A database trigger forbids UPDATE and DELETE.
+ */
+serveFunction(async ({ db, body, caller }) => {
+  const spv_id = requireString(body, "spv_id");
+  const event_type = requireString(body, "event_type");
+  const event_data = optionalObject(body, "event_data");
+  const actor = optionalString(body, "actor") ?? (caller.is_service ? "system" : caller.email ?? caller.id ?? "user");
+
+  const { entry, attempts } = await appendLedgerEntry(db, {
+    spv_id,
+    event_type,
+    event_data,
+    actor,
+    actor_role: optionalString(body, "actor_role"),
+    series_id: optionalString(body, "series_id"),
+    correlation_id: optionalString(body, "correlation_id"),
+  });
+
+  return ok({
+    entry_id: entry.id,
+    hash: entry.hash,
+    previous_hash: entry.previous_hash,
+    sequence: entry.sequence,
+    timestamp: entry.event_timestamp,
+    attempts,
+    hash_preimage: LEDGER_HASH_PREIMAGE,
+    message: `series_registry_log entry created: ${event_type} for SPV ${spv_id}`,
+  });
+});

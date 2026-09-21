@@ -1,14 +1,16 @@
-import { COMMITMENT_TYPES, FORM_D_FILING_WINDOW_DAYS } from "../schemas/constants.ts";
-import { type FirstSaleFiling, planFirstSale } from "./_shared/firstSale.ts";
-import { ok, serveFunction } from "./_shared/http.ts";
-import { appendLedgerEntry } from "./_shared/ledger.ts";
-import { type Rec, toMillis } from "./_shared/records.ts";
-import { optionalPastTimestamp, optionalString, requireEnum, requireString } from "./_shared/validate.ts";
+import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
+import { COMMITMENT_TYPES, FORM_D_FILING_WINDOW_DAYS } from "../../../schemas/constants.ts";
+import type { FormDFilingRow } from "../../../schemas/types.ts";
+import { planFirstSale } from "../_shared/firstSale.ts";
+import { ok, serveFunction } from "../_shared/http.ts";
+import { appendLedgerEntry } from "../_shared/ledger.ts";
+import { isUniqueViolation, toMillis, unwrap } from "../_shared/records.ts";
+import { optionalPastTimestamp, optionalString, requireEnum, requireString } from "../_shared/validate.ts";
 
 /**
  * First-Sale Clock Trigger — Form D Deadline Engine
  *
- * Records commitment milestones on the SPV's FormDFiling record. Only an
+ * Records commitment milestones on the SPV's form_d_filings row. Only an
  * IRREVOCABLE_COMMITMENT is a first sale: it sets irrevocable_commitment_at
  * and first_sale_date, computes filing_deadline (+15 calendar days) and moves
  * the filing to PENDING. Every other commitment type is recorded as a
@@ -26,37 +28,43 @@ import { optionalPastTimestamp, optionalString, requireEnum, requireString } fro
  *                    at the next monitor run.
  *   subscription_id, investor_id  optional, recorded in the ledger event.
  */
-type FilingRecord = Rec<FirstSaleFiling & { spv_id: string }>;
-
-serveFunction(async ({ base44, body }) => {
+serveFunction(async ({ db, body }) => {
   const spv_id = requireString(body, "spv_id");
   const commitment_type = requireEnum(body, "commitment_type", COMMITMENT_TYPES);
   const committedAt = optionalPastTimestamp(body, "committed_at") ?? new Date();
   const subscription_id = optionalString(body, "subscription_id");
   const investor_id = optionalString(body, "investor_id");
 
-  // One FormDFiling per SPV is the invariant; if duplicates exist, the oldest is canonical.
-  const filings = (await base44.entities.FormDFiling.filter({ spv_id })) as FilingRecord[];
-  filings.sort((a, b) => toMillis(a.created_date) - toMillis(b.created_date));
-  const existing = filings[0] ?? null;
-
-  const plan = planFirstSale(commitment_type, existing, committedAt);
-
+  let existing = await findFiling(db, spv_id);
+  let plan = planFirstSale(commitment_type, existing, committedAt);
   let filingId: string;
+
   if (existing) {
     filingId = existing.id;
     if (Object.keys(plan.updates).length > 0) {
-      await base44.entities.FormDFiling.update(existing.id, plan.updates);
+      unwrap(await db.from("form_d_filings").update(plan.updates).eq("id", existing.id));
     }
   } else {
-    const created = (await base44.entities.FormDFiling.create({ spv_id, ...plan.updates })) as FilingRecord;
-    filingId = created.id;
+    const { data, error } = await db.from("form_d_filings").insert({ spv_id, ...plan.updates }).select("id").single();
+    if (error) {
+      if (!isUniqueViolation(error)) throw error;
+      // Concurrent first write for this SPV: re-plan against the winner's row.
+      existing = await findFiling(db, spv_id);
+      if (!existing) throw error;
+      plan = planFirstSale(commitment_type, existing, committedAt);
+      if (Object.keys(plan.updates).length > 0) {
+        unwrap(await db.from("form_d_filings").update(plan.updates).eq("id", existing.id));
+      }
+      filingId = existing.id;
+    } else {
+      filingId = data.id;
+    }
   }
 
   let ledger: { entry_id: string; hash: string } | { error: string } | null = null;
   if (plan.clockStarted) {
     try {
-      const appended = await appendLedgerEntry(base44, {
+      const appended = await appendLedgerEntry(db, {
         spv_id,
         event_type: "FIRST_SALE_RECORDED",
         event_data: {
@@ -89,7 +97,6 @@ serveFunction(async ({ base44, body }) => {
     first_sale_date: plan.firstSaleDate ?? null,
     filing_deadline: plan.filingDeadline ?? null,
     days_remaining: daysRemaining,
-    duplicate_filing_records: Math.max(0, filings.length - 1),
     ledger,
     message: plan.clockStarted
       ? `Form D clock STARTED. First sale at ${plan.firstSaleDate}. Filing deadline: ${plan.filingDeadline} (${FORM_D_FILING_WINDOW_DAYS} days).`
@@ -98,3 +105,9 @@ serveFunction(async ({ base44, body }) => {
       : `${commitment_type} recorded. Form D clock NOT started — only an irrevocable commitment is a first sale.`,
   });
 });
+
+async function findFiling(db: SupabaseClient, spvId: string): Promise<FormDFilingRow | null> {
+  return unwrap(
+    await db.from("form_d_filings").select("*").eq("spv_id", spvId).maybeSingle(),
+  ) as FormDFilingRow | null;
+}

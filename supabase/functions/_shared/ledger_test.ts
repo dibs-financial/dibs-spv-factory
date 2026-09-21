@@ -1,32 +1,37 @@
 import { assertEquals } from "jsr:@std/assert@1";
-import { compareNewestFirst, escalationState, type LedgerRecord, nextSequence } from "./ledger.ts";
+import { compareNewestFirst, escalationState, type LedgerRow, nextSequence } from "./ledger.ts";
 
-function entry(over: Partial<LedgerRecord>): LedgerRecord {
+function entry(over: Partial<LedgerRow>): LedgerRow {
   return {
     id: over.id ?? crypto.randomUUID(),
-    created_date: "2026-01-01T00:00:00.000Z",
+    created_at: "2026-01-01T00:00:00.000Z",
     spv_id: "spv_1",
+    series_id: null,
     event_type: "STATE_CHANGE",
     event_data: {},
     hash: "h",
     previous_hash: "GENESIS",
+    event_timestamp: "2026-01-01T00:00:00.000Z",
+    sequence: 1,
     actor: "system",
-    timestamp: "2026-01-01T00:00:00.000Z",
+    actor_role: null,
+    source_system: "factory",
+    correlation_id: null,
     ...over,
   };
 }
 
-Deno.test("compareNewestFirst prefers sequence, then timestamp, then created_date", () => {
-  const legacy = entry({ id: "legacy", timestamp: "2026-05-01T00:00:00.000Z" });
-  const seq1 = entry({ id: "s1", sequence: 1, timestamp: "2026-01-01T00:00:00.000Z" });
-  const seq2 = entry({ id: "s2", sequence: 2, timestamp: "2026-01-02T00:00:00.000Z" });
-  const sorted = [legacy, seq1, seq2].sort(compareNewestFirst).map((e) => e.id);
-  assertEquals(sorted, ["s2", "s1", "legacy"]);
+Deno.test("compareNewestFirst orders by sequence, then created_at", () => {
+  const s1 = entry({ id: "s1", sequence: 1, created_at: "2026-05-01T00:00:00.000Z" });
+  const s2 = entry({ id: "s2", sequence: 2, created_at: "2026-01-01T00:00:00.000Z" });
+  const s2b = entry({ id: "s2b", sequence: 2, created_at: "2026-02-01T00:00:00.000Z" });
+  const sorted = [s1, s2, s2b].sort(compareNewestFirst).map((e) => e.id);
+  assertEquals(sorted, ["s2b", "s2", "s1"]);
 });
 
 Deno.test("nextSequence starts at 1 and increments", () => {
+  assertEquals(nextSequence(null), 1);
   assertEquals(nextSequence(undefined), 1);
-  assertEquals(nextSequence(entry({})), 1);
   assertEquals(nextSequence(entry({ sequence: 7 })), 8);
 });
 

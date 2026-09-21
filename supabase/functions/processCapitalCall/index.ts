@@ -1,22 +1,22 @@
-import { HttpError, ok, serveFunction } from "./_shared/http.ts";
-import { appendLedgerEntry } from "./_shared/ledger.ts";
-import { computeCallAmount } from "./_shared/money.ts";
-import { isPlainObject } from "./_shared/records.ts";
-import { addCalendarDays } from "./_shared/time.ts";
-import { numberOption, requireString } from "./_shared/validate.ts";
+import type { CapitalCallRow } from "../../../schemas/types.ts";
+import { HttpError, ok, serveFunction } from "../_shared/http.ts";
+import { appendLedgerEntry } from "../_shared/ledger.ts";
+import { computeCallAmount } from "../_shared/money.ts";
+import { isPlainObject, isUniqueViolation, unwrap } from "../_shared/records.ts";
+import { addCalendarDays } from "../_shared/time.ts";
+import { numberOption, requireString } from "../_shared/validate.ts";
 
 /**
  * Capital Call Processor
  *
- * Creates CapitalCall records for the supplied investors, calculating each
+ * Creates capital_calls rows for the supplied investors, calculating each
  * call amount from the subscription amount and call percentage (rounded to
  * cents), and sets the wire due date.
  *
- * This function does NOT check KYC or subscription execution. Subscriptions
- * live in the deal-model app, which this app cannot read from its service
- * context; the workflow step that calls this function is responsible for
- * passing only investors whose KYC has passed and whose subscription is
- * executed.
+ * This function does NOT check KYC or subscription execution. The deal-model
+ * tables are not part of this repository; the pipeline step that calls this
+ * function is responsible for passing only investors whose KYC has passed and
+ * whose subscription is executed.
  *
  * Body:
  *   spv_id          required
@@ -24,9 +24,9 @@ import { numberOption, requireString } from "./_shared/validate.ts";
  *   call_percentage optional, (0, 100], default 100
  *   due_date_days   optional integer >= 1, default 10
  *
- * Idempotent per (spv_id, investor_id, subscription_id). Per-investor failures
- * are reported individually and never abort the batch. One CAPITAL_CALL_ISSUED
- * ledger event summarises the batch.
+ * Idempotent per (spv_id, investor_id, subscription_id) via the table's unique
+ * constraint. Per-investor failures are reported individually and never abort
+ * the batch. One CAPITAL_CALL_ISSUED ledger event summarises the batch.
  */
 interface InvestorCall {
   investor_id: string;
@@ -44,7 +44,7 @@ interface CallResult {
   message?: string;
 }
 
-serveFunction(async ({ base44, body }) => {
+serveFunction(async ({ db, body }) => {
   const spv_id = requireString(body, "spv_id");
   const callPct = numberOption(body, "call_percentage", { default: 100, exclusiveMin: 0, max: 100 });
   const dueDays = numberOption(body, "due_date_days", { default: 10, min: 1, integer: true });
@@ -56,25 +56,10 @@ serveFunction(async ({ base44, body }) => {
   let totalCalled = 0;
 
   for (const inv of investors) {
+    const base = { investor_id: inv.investor_id, subscription_id: inv.subscription_id };
     try {
-      const existing = await base44.entities.CapitalCall.filter({
-        spv_id,
-        investor_id: inv.investor_id,
-        subscription_id: inv.subscription_id,
-      });
-      if (existing.length > 0) {
-        results.push({
-          investor_id: inv.investor_id,
-          subscription_id: inv.subscription_id,
-          status: "SKIPPED",
-          call_id: existing[0].id,
-          message: "Capital call already exists for this investor/subscription.",
-        });
-        continue;
-      }
-
       const callAmount = computeCallAmount(inv.amount, callPct);
-      const call = await base44.entities.CapitalCall.create({
+      const { data, error } = await db.from("capital_calls").insert({
         spv_id,
         subscription_id: inv.subscription_id,
         investor_id: inv.investor_id,
@@ -83,22 +68,28 @@ serveFunction(async ({ base44, body }) => {
         due_date: dueDate,
         wire_status: "ISSUED",
         received_amount: 0,
-      });
+      }).select("id").single();
+
+      if (error) {
+        if (!isUniqueViolation(error)) throw error;
+        const existing = unwrap(
+          await db.from("capital_calls").select("id").match({ spv_id, ...base }).maybeSingle(),
+        ) as Pick<CapitalCallRow, "id"> | null;
+        results.push({
+          ...base,
+          status: "SKIPPED",
+          call_id: existing?.id,
+          message: "Capital call already exists for this investor/subscription.",
+        });
+        continue;
+      }
 
       totalCalled += callAmount;
-      results.push({
-        investor_id: inv.investor_id,
-        subscription_id: inv.subscription_id,
-        status: "CREATED",
-        call_id: call.id,
-        call_amount: callAmount,
-        due_date: dueDate,
-      });
+      results.push({ ...base, status: "CREATED", call_id: data.id, call_amount: callAmount, due_date: dueDate });
     } catch (error) {
       console.error(`capital call failed for investor ${inv.investor_id}`, error);
       results.push({
-        investor_id: inv.investor_id,
-        subscription_id: inv.subscription_id,
+        ...base,
         status: "FAILED",
         message: error instanceof Error ? error.message : "Unexpected error.",
       });
@@ -109,7 +100,7 @@ serveFunction(async ({ base44, body }) => {
   let ledger: { entry_id: string; hash: string } | { error: string } | null = null;
   if (created.length > 0) {
     try {
-      const appended = await appendLedgerEntry(base44, {
+      const appended = await appendLedgerEntry(db, {
         spv_id,
         event_type: "CAPITAL_CALL_ISSUED",
         event_data: {
@@ -148,7 +139,7 @@ function parseInvestorList(raw: unknown): InvestorCall[] {
     throw new HttpError(
       400,
       "INVESTOR_LIST_REQUIRED",
-      "investor_list must be a non-empty array. The workflow step reads executed subscriptions from the deal-model app and passes them here.",
+      "investor_list must be a non-empty array of executed, KYC-passed subscriptions.",
       { expected_format: [{ investor_id: "...", subscription_id: "...", amount: 50000 }] },
     );
   }

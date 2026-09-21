@@ -1,8 +1,9 @@
-import { FORMATION_STAGES } from "../schemas/constants.ts";
-import { fail, ok, serveFunction } from "./_shared/http.ts";
-import { escalationState, type LedgerRecord } from "./_shared/ledger.ts";
-import { getActiveMasterEntity, masterHasLiabilityNotice } from "./_shared/master.ts";
-import { requireEnum, requireString } from "./_shared/validate.ts";
+import { FORMATION_STAGES } from "../../../schemas/constants.ts";
+import { fail, ok, serveFunction } from "../_shared/http.ts";
+import { escalationState, type LedgerRow } from "../_shared/ledger.ts";
+import { getActiveMasterEntity, masterHasLiabilityNotice } from "../_shared/master.ts";
+import { unwrap } from "../_shared/records.ts";
+import { requireEnum, requireString } from "../_shared/validate.ts";
 
 /**
  * Formation Pipeline Gate — Pre-flight Check
@@ -13,17 +14,17 @@ import { requireEnum, requireString } from "./_shared/validate.ts";
  *    escalation is cleared by appending an ESCALATION_RESOLVED event, never by
  *    editing the ledger.
  *
- * The SPV's own stage lives in the deal-model app and cannot be read from this
- * app's service context, so idempotency against the target stage is enforced
- * by the workflow step that calls this gate.
+ * Idempotency against the SPV's current stage is enforced by the pipeline
+ * runner that calls this gate; the deal-model tables are not part of this
+ * repository.
  *
  * Returns a go/no-go decision with evidence.
  */
-serveFunction(async ({ base44, body }) => {
+serveFunction(async ({ db, body }) => {
   const spv_id = requireString(body, "spv_id");
   const target_stage = requireEnum(body, "target_stage", FORMATION_STAGES);
 
-  const master = await getActiveMasterEntity(base44);
+  const master = await getActiveMasterEntity(db);
   if (!masterHasLiabilityNotice(master)) {
     return fail(
       422,
@@ -37,10 +38,12 @@ serveFunction(async ({ base44, body }) => {
     );
   }
 
-  const escalationEvents = (await base44.entities.SeriesRegistryLog.filter({
-    spv_id,
-    event_type: { $in: ["ESCALATION", "ESCALATION_RESOLVED"] },
-  })) as LedgerRecord[];
+  const escalationEvents = unwrap(
+    await db.from("series_registry_log").select("*").eq("spv_id", spv_id).in("event_type", [
+      "ESCALATION",
+      "ESCALATION_RESOLVED",
+    ]),
+  ) as LedgerRow[];
   const state = escalationState(escalationEvents);
 
   if (state.active && state.escalation) {
@@ -53,7 +56,7 @@ serveFunction(async ({ base44, body }) => {
         spv_id,
         target_stage,
         escalation_entry_id: state.escalation.id,
-        escalated_at: state.escalation.timestamp ?? state.escalation.created_date,
+        escalated_at: state.escalation.event_timestamp,
         escalation: state.escalation.event_data,
       },
     );
@@ -64,7 +67,7 @@ serveFunction(async ({ base44, body }) => {
     spv_id,
     target_stage,
     master_entity: master.legal_name,
-    last_escalation_resolved_at: state.resolution?.timestamp ?? null,
+    last_escalation_resolved_at: state.resolution?.event_timestamp ?? null,
     message: `Gate passed for SPV ${spv_id} → ${target_stage}. Statutory check clear, no unresolved escalations.`,
   });
 });

@@ -1,4 +1,10 @@
 /**
+ * LEGACY — Base44 entity definitions retained for reference only.
+ * The platform is now Lovable Cloud (Supabase). The canonical schema is
+ * supabase/migrations/20260921000000_dibs_spv_factory.sql and row types are in
+ * schemas/types.ts. This file is not type-checked or deployed.
+ */
+/**
  * DIBS SPV Factory — Entity Schema Definitions
  * Canonical source of truth for all entity schemas
  * Repo: github.com/dibs-financial/dibs-spv-factory
@@ -27,7 +33,7 @@ import {
   LEDGER_EVENT_TYPES,
   LEDGER_HASH_PREIMAGE,
   RESPONSIBLE_PARTY_STATUSES,
-} from "./constants.ts";
+} from "../../schemas/constants.ts";
 
 // ============================================================================
 // LAYER 1 — MASTER ENTITY (Elara app)

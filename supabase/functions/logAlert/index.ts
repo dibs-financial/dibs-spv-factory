@@ -1,7 +1,6 @@
 import { ALERT_SEVERITIES, ALERT_TYPES } from "../../../schemas/constants.ts";
-import type { AlertRow } from "../../../schemas/types.ts";
+import { raiseAlert } from "../_shared/alerts.ts";
 import { HttpError, ok, serveFunction } from "../_shared/http.ts";
-import { unwrap } from "../_shared/records.ts";
 import {
   optionalObject,
   optionalString,
@@ -31,23 +30,20 @@ serveFunction(async ({ db, body, caller }) => {
     );
   }
 
-  const entry = unwrap(
-    await db.from("alert_log").insert({
-      spv_id,
-      alert_type,
-      severity,
-      covenant_type: optionalString(body, "covenant_type") ?? null,
-      evidence: optionalObject(body, "evidence") ?? {},
-      deal_id: optionalString(body, "deal_id") ?? null,
-      recommended_action: optionalString(body, "recommended_action") ?? null,
-      escalated_to: optionalString(body, "escalated_to") ?? null,
-      channels_sent: optionalStringArray(body, "channels_sent") ?? [],
-      acknowledged: false,
-    }).select("id").single(),
-  ) as Pick<AlertRow, "id">;
+  const entry = await raiseAlert(db, {
+    spv_id,
+    alert_type,
+    severity,
+    covenant_type: optionalString(body, "covenant_type"),
+    evidence: optionalObject(body, "evidence"),
+    deal_id: optionalString(body, "deal_id"),
+    recommended_action: optionalString(body, "recommended_action"),
+    escalated_to: optionalString(body, "escalated_to"),
+    channels_sent: optionalStringArray(body, "channels_sent"),
+  });
 
   return ok({
-    alert_id: entry.id,
+    alert_id: entry.alert_id,
     severity,
     alert_type,
     spv_id,

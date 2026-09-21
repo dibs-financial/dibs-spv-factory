@@ -19,7 +19,7 @@ All bodies are JSON objects. All responses are JSON with `success` (boolean) and
 |---|---|
 | 400 | validation error (`MISSING_REQUIRED_FIELDS`, `INVALID_<FIELD>`, `INVALID_JSON`, `TIMESTAMP_TOO_OLD`, …) |
 | 401 | `UNAUTHENTICATED` — missing or invalid token |
-| 403 | `FORBIDDEN` — user lacks an allowed role |
+| 403 | `FORBIDDEN` — user lacks an allowed role; `SERVICE_TOKEN_REQUIRED` — runners, `OFAC_FLAG` and `CRITICAL` alerts need the service-role token |
 | 409 | `LEDGER_CONTENTION` — retry the ledger append |
 | 422 | a business gate failed (`STATUTORY_BLOCK`, `ESCALATION_BLOCK`, `NO_ACTIVE_MASTER`, `MULTIPLE_ACTIVE_MASTERS`, `NO_MASTER_ENTITY`) |
 | 429 | `NO_AVAILABLE_PARTY` — every SS-4 signatory is used today |
@@ -87,6 +87,12 @@ Records a commitment milestone. Only `IRREVOCABLE_COMMITMENT` starts the Form D 
 Body: `spv_id`, `commitment_type` (`IRREVOCABLE_COMMITMENT | SOFT_CIRCLE | SUBSCRIPTION_SIGNED | FUNDS_RECEIVED | FUNDS_CLEARED`) required; `committed_at` (ISO timestamp, not in the future, default now), `acknowledge_late` (boolean; required when `committed_at` is more than 15 days old, otherwise 400 `TIMESTAMP_TOO_OLD`), `subscription_id`, `investor_id` optional. A late-acknowledged first sale whose window has closed is created with status `OVERDUE`.
 
 Response: `form_d_filing_id`, `commitment_type`, `recorded_at`, `clock_started`, `clock_running`, `first_sale_date`, `filing_deadline`, `days_remaining`, `ledger`, `message`. Soft circles, signed subscriptions and bank receipts never start the clock; the clock is never restarted.
+
+## Scheduled runners
+
+`POST /dibs-covenant-monitor`, `POST /dibs-form-d-deadline-tracker`, `POST /dibs-spv-formation-pipeline`, `POST /dibs-investor-onboarding-monitor`
+
+Invoked by pg_cron with the service-role token; any other caller gets `403 SERVICE_TOKEN_REQUIRED`. Empty body. Each returns `runner`, `started_at`, `duration_ms` and counts of what it found or changed, plus `skipped` for checks that need data outside this repository. What each one does is in `workflows/README.md`. Calling a runner by hand (for example after seeding data) is safe: every action is idempotent and alerts are deduplicated against unacknowledged ones.
 
 ## Enumerations
 

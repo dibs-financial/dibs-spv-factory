@@ -38,7 +38,10 @@ unless you say so.
   evidence. It is not a legal-record substitute under 6 Del. C. § 18-215(b).
 - Only `IRREVOCABLE_COMMITMENT` starts the Form D clock.
 - Escalations clear only by appending `ESCALATION_RESOLVED`.
-- `OFAC_FLAG` and `CRITICAL` AlertLog rows require a service token.
+- `OFAC_FLAG` and `CRITICAL` AlertLog rows require a service token. The four
+  scheduled runners (`dibs-*`) accept only the service-role token and act on
+  every SPV; every state change they make is a ledger event under their own
+  name, and they raise alerts through the same path as `logAlert`.
 - Responsible-party claims are a single conditional UPDATE, so two callers can
   never take the same SS-4 signatory. EIN assignment responses return
   `responsible_party_id` and `name`, not email.
@@ -51,8 +54,9 @@ unless you say so.
   workflow, which must apply those checks itself.
 - Per-tenant or per-sponsor isolation. Access is by role, not by SPV or
   organisation; `SPVFACTORY_TENANT_ID` is a label, not a boundary.
-- The orchestration runners behind the four schedules in
-  `workflows/README.md` are not in this repository.
+- The runners can only observe factory tables. LTV, milestone, OFAC and
+  KYC-session checks need deal-model rows or connectors and are reported as
+  `skipped` in every run summary rather than silently omitted.
 - Connectors (IRS, EDGAR, Sumsub, bank, e-sign) are specified, not shipped.
 - Phase 3 (document generate + e-sign) is not in this repository.
 

@@ -1,46 +1,94 @@
 # Workflow Definitions
 
-The four schedules below run as pg_cron jobs in Lovable Cloud (Supabase) and call the edge functions with the service-role key. The orchestration steps themselves (reading SPVs, deciding which function to call) were agent steps on the previous platform and are not in this repository; each schedule needs a runner function or an external agent that calls the endpoints listed.
+The four schedules run as pg_cron jobs in Lovable Cloud (Supabase). Each job calls a runner edge function with the service-role key; the runners accept nothing else (a user JWT gets `403 SERVICE_TOKEN_REQUIRED`). Each returns a run summary for the cron log.
 
-Template (run once per schedule in the SQL editor, with the extensions `pg_cron` and `pg_net` enabled):
+## One-time setup
 
 ```sql
-select cron.schedule(
-  'dibs-covenant-monitor',
-  '0 * * * *',
-  $$
+create extension if not exists pg_cron;
+create extension if not exists pg_net;
+
+-- keep the key out of the job definitions
+alter database postgres set app.settings.service_role_key = '<service-role-key>';
+alter database postgres set app.settings.functions_url = 'https://<project-ref>.supabase.co/functions/v1';
+
+create or replace function public.invoke_factory_runner(runner text)
+returns bigint language sql as $$
   select net.http_post(
-    url := 'https://<project-ref>.supabase.co/functions/v1/<runner-function>',
+    url := current_setting('app.settings.functions_url', true) || '/' || runner,
     headers := jsonb_build_object(
       'Content-Type', 'application/json',
       'Authorization', 'Bearer ' || current_setting('app.settings.service_role_key', true)
     ),
     body := '{}'::jsonb
   );
-  $$
-);
+$$;
+
+select cron.schedule('dibs-covenant-monitor',            '0 * * * *',   $$select public.invoke_factory_runner('dibs-covenant-monitor')$$);
+select cron.schedule('dibs-form-d-deadline-tracker',     '0 8 * * *',   $$select public.invoke_factory_runner('dibs-form-d-deadline-tracker')$$);
+select cron.schedule('dibs-spv-formation-pipeline',      '*/15 * * * *', $$select public.invoke_factory_runner('dibs-spv-formation-pipeline')$$);
+select cron.schedule('dibs-investor-onboarding-monitor', '0 * * * *',   $$select public.invoke_factory_runner('dibs-investor-onboarding-monitor')$$);
 ```
 
-Store the service-role key with `alter database postgres set app.settings.service_role_key = '<key>'` rather than pasting it into the job.
+Check runs with `select * from cron.job_run_details order by start_time desc limit 20;`.
 
-## DIBS Covenant Monitor
-- **Trigger:** every hour (cron: `0 * * * *`, UTC)
-- **Calls:** `logAlert`
-- **Scope:** LTV thresholds, milestone deadlines, KYC/AML exceptions, OFAC flags, Form D deadlines
-- **Guardrails:** Read-only on all tables except `alert_log`. Never approves, waives, or modifies covenant status.
+## dibs-covenant-monitor — hourly
+Read-only on every table except `alert_log`. Never approves, waives, or modifies covenant status.
 
-## Form D Deadline Tracker
-- **Trigger:** daily at 8am UTC (cron: `0 8 * * *`)
-- **Calls:** `logAlert` after reading `form_d_filings`
-- **Escalation:** WARNING at day 10, CRITICAL at day 15+ (overdue). Operational 15-calendar-day clock, not counsel's Rule 503 calendar.
+| Check | Source | Alert |
+|---|---|---|
+| Statutory gate: zero, several, or notice-less ACTIVE master | `master_entities` | CRITICAL `ESCALATION` (spv_id `MASTER`) |
+| Form D deadline passed since the daily tracker | `form_d_filings` PENDING | CRITICAL `FORM_D_OVERDUE` |
+| Blue-sky notice marked OVERDUE | `blue_sky_filings` | WARNING `BLUE_SKY_OVERDUE` |
+| EIN request FAILED / THROTTLED / MANUAL_REQUIRED | `ein_requests` | WARNING `EIN_FAILURE` |
+| LTV, milestones, OFAC | deal-model tables, not in this repo | reported under `skipped` |
 
-## SPV Formation Pipeline
-- **Trigger:** every 15 minutes (cron: `*/15 * * * *`, UTC)
-- **Calls:** `checkFormationGate` before every transition, then `getNextResponsibleParty`, `createSeriesLedgerEntry`, `processCapitalCall` as stages require
-- **Pipeline stages (14):** INTAKE → SERIES_CREATED → EIN_PENDING → EIN_RECEIVED → BANK_PENDING → BANK_READY → DOCS_PENDING → DOCS_EXECUTED → KYC_BATCH_PENDING → KYC_COMPLETE → CAPITAL_CALL_PENDING → CAPITAL_RECEIVED → REGULATORY_PENDING → INVESTOR_READY, plus hold states BLOCKED, EIN_PENDING_MANUAL, PENDING_STATE_FILING
-- **Guardrails:** `checkFormationGate` runs before every transition (statutory gate, exactly one ACTIVE master, no unresolved escalation). Every transition logged to the hash-chain ledger. Escalates on any gate failure; an escalation is cleared only by appending `ESCALATION_RESOLVED`.
+Alerts are deduplicated against an unacknowledged alert of the same type and severity for the SPV. A run with no findings writes one INFO `COMPLIANCE_CHECK_PASS`.
 
-## Investor Onboarding Monitor
-- **Trigger:** every hour (cron: `0 * * * *`, UTC)
-- **Calls:** `triggerFirstSaleClock`, `processCapitalCall`, `logAlert`
-- **Guardrails:** KYC/AML hits escalated to human review. Only an irrevocable commitment starts the Form D clock — soft circles, signed subscriptions and bank receipts are recorded as timestamps only. Pass `committed_at` to `triggerFirstSaleClock` so the clock starts at the commitment, not at the monitor run. Cross-series data never exposed.
+## dibs-form-d-deadline-tracker — daily 08:00 UTC
+Operational 15-calendar-day clock, not counsel's Rule 503 calendar. Never files anything.
+
+- Day 10 or later: WARNING `FORM_D_OVERDUE` (approaching).
+- Past the deadline: `form_d_filings.status` PENDING → OVERDUE, `STATE_CHANGE` ledger event, CRITICAL `FORM_D_OVERDUE` escalated to counsel.
+
+## dibs-spv-formation-pipeline — every 15 minutes
+Keeps the factory-side stage in `spv_pipeline` (migration `20260921010000_spv_pipeline.sql`). An SPV is enrolled at INTAKE the first time a ledger event is written for it.
+
+Before every evaluation the formation gate runs (`_shared/gate.ts`: exactly one ACTIVE master with the § 18-215(b) notice, no unresolved escalation). A failing gate moves the SPV to BLOCKED, remembers its stage, and raises a CRITICAL `ESCALATION`; when the gate passes again the SPV returns to that stage. An escalation is cleared only by appending `ESCALATION_RESOLVED`.
+
+Stage transitions (`_shared/pipeline.ts`), each recorded as a `STATE_CHANGE` ledger event:
+
+| From | To | When |
+|---|---|---|
+| INTAKE | SERIES_CREATED | `SERIES_CREATED` ledger event exists |
+| SERIES_CREATED | EIN_PENDING | an `ein_requests` row exists (from `getNextResponsibleParty`) |
+| EIN_PENDING | EIN_RECEIVED | request ISSUED with an EIN |
+| EIN_PENDING | EIN_PENDING_MANUAL (hold) | request FAILED or MANUAL_REQUIRED |
+| EIN_PENDING_MANUAL | EIN_RECEIVED | request later ISSUED |
+| EIN_RECEIVED | BANK_PENDING | automatic |
+| BANK_PENDING | BANK_READY | `bank_sub_accounts` ACTIVE or PROVISIONAL |
+| BANK_READY | DOCS_PENDING | automatic |
+| DOCS_PENDING | DOCS_EXECUTED | SERIES_SCHEDULE and SUBSCRIPTION_AGREEMENT both EXECUTED |
+| DOCS_EXECUTED | KYC_BATCH_PENDING | automatic |
+| KYC_BATCH_PENDING | KYC_COMPLETE | latest KYC ledger event is `KYC_PASS` (`KYC_FAIL` waits for human review) |
+| KYC_COMPLETE | CAPITAL_CALL_PENDING | automatic |
+| CAPITAL_CALL_PENDING | CAPITAL_RECEIVED | at least one capital call and all RECEIVED |
+| CAPITAL_RECEIVED | REGULATORY_PENDING | automatic |
+| REGULATORY_PENDING | INVESTOR_READY | Form D FILED or NOT_REQUIRED and no PENDING/OVERDUE blue-sky filing |
+
+The runner observes; it never creates series, EINs, bank accounts, documents, or capital calls. The reason an SPV is waiting is stored in `spv_pipeline.wait_reason`. Up to five transitions are applied per run so the automatic stages do not take an hour to cross.
+
+## dibs-investor-onboarding-monitor — hourly
+
+| Check | Action |
+|---|---|
+| Capital call ISSUED/PENDING past `due_date` | `wire_status` → OVERDUE, `STATE_CHANGE` ledger event, WARNING `WIRE_FAILURE` |
+| `KYC_FAIL` ledger event with no later `KYC_PASS` | WARNING `KYC_EXCEPTION` escalated to compliance review |
+| `funds_received_at` set but no `irrevocable_commitment_at` | WARNING `ESCALATION`: bank receipt is never inferred to be a first sale; a human must call `triggerFirstSaleClock` with the real `committed_at` |
+| OFAC, KYC sessions | deal-model tables / connectors not in this repo; reported under `skipped` |
+
+## Guardrails common to all runners
+- Only an irrevocable commitment starts the Form D clock; runners never call `triggerFirstSaleClock`.
+- Every state change a runner makes is a ledger event with the runner's name as `actor`.
+- Runners raise alerts through the same `raiseAlert` path as `logAlert`; nothing else writes `alert_log`.
+- Cross-series data is never exposed; runners return counts, not rows.

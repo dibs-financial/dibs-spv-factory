@@ -49,7 +49,7 @@ schemas/types.ts                        (row types for the tables, FeeSchedule s
 schemas/pricing.ts                      (tier defaults for deal_configurations.fee_schedule)
 supabase/migrations/                    (canonical schema — LICENSE-PROPRIETARY)
 supabase/functions/<name>/index.ts      (operational engine — LICENSE-PROPRIETARY)
-supabase/functions/dibs-*/index.ts      (the four scheduled runners; see workflows/README.md)
+supabase/functions/dibs-*/index.ts      (the five scheduled runners; see workflows/README.md)
 supabase/functions/_shared/             (auth, validation, hash chain, first-sale rules, tests)
 supabase/functions/.env.example         (Lovable Cloud secrets manifest)
 scripts/lovable-secrets.sh              (sets the secrets with the Supabase CLI)
@@ -84,7 +84,7 @@ deno task test      # unit tests only
 2. Deploy the functions: `supabase functions deploy` deploys every folder under `supabase/functions/`. `SUPABASE_URL`, `SUPABASE_ANON_KEY` and `SUPABASE_SERVICE_ROLE_KEY` are provided automatically.
 3. Set the factory secrets listed in `supabase/functions/.env.example` (`SPVFACTORY_BASE_URL`, `SPVFACTORY_API_KEY`, `SPVFACTORY_TENANT_ID`, `SPVFACTORY_ENV`, `DIBS_FUNCTION_ALLOWED_ROLES`, and in production `DIBS_CORS_ORIGINS`) under Cloud → Secrets in Lovable, or run `scripts/lovable-secrets.sh <project-ref>` with a Supabase access token. Confirm with a call to `factoryInfo`.
 4. Grant operators a role: insert into `public.user_roles (user_id, role)`.
-5. Create the four pg_cron schedules with the SQL in `workflows/README.md`; they call the `dibs-*` runner functions with the service-role key.
+5. Create the five pg_cron schedules with the SQL in `workflows/README.md`; they call the `dibs-*` runner functions with the service-role key.
 
 Functions share code through `supabase/functions/_shared/`, which the Supabase bundler includes automatically.
 

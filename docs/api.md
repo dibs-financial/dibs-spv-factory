@@ -47,9 +47,9 @@ Response 200: `gate_passed: true`, `master_entity`, `last_escalation_resolved_at
 ### `POST /createSeriesLedgerEntry`
 Hash-chained, append-only event.
 
-Body: `spv_id` (required), `event_type` (one of the ledger event types, required), `event_data` (object), `actor`, `actor_role`, `series_id`, `correlation_id` (strings).
+Body: `spv_id` (required), `event_type` (one of the ledger event types, required), `event_data` (object), `series_id`, `correlation_id` (strings). `actor` and `actor_role` are accepted only from a service token; for a user JWT they are set from the authenticated user and their roles.
 
-Response: `entry_id`, `hash`, `previous_hash`, `sequence`, `timestamp`, `attempts`, `hash_preimage`. Hash = SHA-256 of `previous_hash|spv_id|event_type|timestamp|canonical_json(event_data)`.
+Response: `entry_id`, `actor`, `hash`, `previous_hash`, `sequence`, `timestamp`, `attempts`, `hash_preimage`. Hash = SHA-256 of `previous_hash|spv_id|event_type|timestamp|canonical_json(event_data)`.
 
 ### `POST /verifySeriesLedger`
 Read-only chain verification.
@@ -63,6 +63,8 @@ The covenant monitor's only write path.
 
 Body: `spv_id`, `alert_type`, `severity` (`INFO | WARNING | CRITICAL`) required; `covenant_type`, `evidence` (object), `deal_id`, `recommended_action`, `escalated_to`, `channels_sent` (string[]) optional.
 
+`OFAC_FLAG` alerts and `CRITICAL` severity require a service token (403 `SERVICE_TOKEN_REQUIRED` otherwise).
+
 Response: `alert_id`, `alert_type`, `severity`, `spv_id`.
 
 ### `POST /getNextResponsibleParty`
@@ -70,7 +72,7 @@ IRS SS-4 signatory rotation on the Eastern calendar day.
 
 Body (optional): `spv_id` — makes the call idempotent per SPV and opens an `ein_requests` row; `monthly_cap` (integer ≥ 1).
 
-Response: `already_assigned`, `responsible_party_id`, `name`, `email`, `ein_count_this_month`, `ein_request_id`, `irs_calendar_date`. 429 when the pool is exhausted for today.
+Response: `already_assigned`, `responsible_party_id`, `name`, `ein_count_this_month`, `ein_request_id`, `irs_calendar_date`. 429 when the pool is exhausted for today.
 
 ### `POST /processCapitalCall`
 Creates capital calls for executed, KYC-passed subscriptions supplied by the caller.

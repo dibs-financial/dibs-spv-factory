@@ -1,0 +1,112 @@
+/**
+ * Row types for the DIBS SPV Factory tables. The canonical schema is
+ * supabase/migrations/20260921000000_dibs_spv_factory.sql; keep this file in
+ * step with it. Enumerations come from ./constants.ts.
+ */
+import type { AlertSeverity, AlertType, FormDStatus, LedgerEventType } from "./constants.ts";
+
+export interface ServerFields {
+  id: string;
+  created_at: string;
+}
+
+export interface MasterEntityRow extends ServerFields {
+  legal_name: string;
+  delaware_entity_id: string | null;
+  formation_date: string | null;
+  has_liability_notice: boolean;
+  certificate_file_uri: string | null;
+  certificate_of_formation_hash: string | null;
+  liability_notice_verified_at: string | null;
+  registered_agent_id: string | null;
+  operating_agreement_version: string | null;
+  amendment_count: number;
+  last_amendment_date: string | null;
+  status: "ACTIVE" | "AMENDMENT_PENDING" | "INACTIVE";
+  updated_at: string;
+}
+
+export interface LedgerRow extends ServerFields {
+  spv_id: string;
+  series_id: string | null;
+  event_type: LedgerEventType;
+  event_data: Record<string, unknown>;
+  hash: string;
+  previous_hash: string;
+  /** Exact ISO-8601 string used in the hash preimage. */
+  event_timestamp: string;
+  sequence: number;
+  actor: string;
+  actor_role: string | null;
+  source_system: string;
+  correlation_id: string | null;
+}
+
+export interface AlertRow extends ServerFields {
+  spv_id: string;
+  alert_type: AlertType;
+  severity: AlertSeverity;
+  covenant_type: string | null;
+  evidence: Record<string, unknown>;
+  deal_id: string | null;
+  recommended_action: string | null;
+  escalated_to: string | null;
+  channels_sent: string[];
+  acknowledged: boolean;
+  acknowledged_at: string | null;
+  acknowledged_by: string | null;
+}
+
+export interface ResponsiblePartyRow extends ServerFields {
+  name: string;
+  email: string | null;
+  ein_used_today: boolean;
+  /** YYYY-MM-DD on the IRS (Eastern) calendar. */
+  last_used_date: string | null;
+  ein_count_this_month: number;
+  status: "AVAILABLE" | "USED_TODAY" | "EXHAUSTED" | "INACTIVE";
+  updated_at: string;
+}
+
+export interface EINRequestRow extends ServerFields {
+  spv_id: string;
+  responsible_party: string;
+  responsible_party_id: string | null;
+  request_date: string | null;
+  ein: string | null;
+  status: "PENDING" | "ISSUED" | "FAILED" | "THROTTLED" | "MANUAL_REQUIRED";
+  irs_confirmation_ref: string | null;
+  updated_at: string;
+}
+
+export interface CapitalCallRow extends ServerFields {
+  spv_id: string;
+  subscription_id: string;
+  investor_id: string;
+  call_amount: number;
+  call_date: string;
+  due_date: string | null;
+  wire_status: "ISSUED" | "PENDING" | "RECEIVED" | "OVERDUE" | "FAILED";
+  wire_confirmation_ref: string | null;
+  received_amount: number;
+  received_date: string | null;
+  updated_at: string;
+}
+
+export interface FormDFilingRow extends ServerFields {
+  spv_id: string;
+  cik: string | null;
+  offering_amount: number | null;
+  first_sale_date: string | null;
+  filing_deadline: string | null;
+  filed_date: string | null;
+  edgar_accession_number: string | null;
+  status: FormDStatus;
+  soft_circle_at: string | null;
+  subscription_sent_at: string | null;
+  subscription_signed_at: string | null;
+  irrevocable_commitment_at: string | null;
+  funds_received_at: string | null;
+  funds_cleared_at: string | null;
+  updated_at: string;
+}

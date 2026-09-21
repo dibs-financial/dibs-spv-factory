@@ -1,3 +1,5 @@
+> **Historical document.** Written for the original Base44 build. The platform is now Lovable Cloud (Supabase); the canonical schema is `supabase/migrations/` and the functions are under `supabase/functions/`. Entity and app names below refer to the Base44 layout.
+
 # DIBS SPV Factory — Implementation Gap Analysis & Technical Deep-Dive
 
 ## 1. Current State Inventory
@@ -107,7 +109,7 @@ The `Spv` entity covers basic series metadata but is missing critical fields for
 }
 ```
 
-This entity IS the legal record substitute. It must be append-only — no updates, no deletes. The backend function that writes to it should reject any non-create operation.
+This entity is detective evidence of series operations, not a substitute for the separate books, records and accounts required under 6 Del. C. § 18-215(b). It must be append-only — no updates, no deletes. The backend function that writes to it only creates; escalations are cleared by appending `ESCALATION_RESOLVED`.
 
 ---
 

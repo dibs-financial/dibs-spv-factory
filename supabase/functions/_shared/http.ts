@@ -72,7 +72,11 @@ export interface Caller {
   roles: string[];
 }
 
-export async function requireCaller(req: Request, db: SupabaseClient): Promise<Caller> {
+export async function requireCaller(
+  req: Request,
+  db: SupabaseClient,
+  options: { requireRole?: boolean } = {},
+): Promise<Caller> {
   const header = req.headers.get("Authorization") ?? "";
   const token = header.startsWith("Bearer ") ? header.slice("Bearer ".length).trim() : "";
   if (!token) {
@@ -95,7 +99,7 @@ export async function requireCaller(req: Request, db: SupabaseClient): Promise<C
   ) as Array<{ role: string }>;
   const roles = roleRows.map((r) => r.role);
   const allowed = allowedRoles();
-  if (!roles.some((r) => allowed.includes(r))) {
+  if (options.requireRole !== false && !roles.some((r) => allowed.includes(r))) {
     throw new HttpError(
       403,
       "FORBIDDEN",
@@ -117,11 +121,31 @@ export type FunctionHandler = (ctx: FunctionContext) => Promise<Response>;
 /**
  * Wraps a handler with CORS, caller authorisation, JSON-body parsing and
  * uniform error responses. Every factory function goes through this so
- * behaviour is identical across the fleet.
+ * behaviour is identical across the fleet. `requireRole: false` admits any
+ * authenticated user (used only by read-only, non-sensitive endpoints).
  */
+/**
+ * Factory-wide settings supplied as Lovable Cloud secrets (see
+ * supabase/functions/.env.example). All optional; factoryInfo reports them.
+ */
+export function factorySettings(): {
+  base_url: string | null;
+  tenant_id: string | null;
+  env: string;
+  allowed_roles: string[];
+} {
+  const url = Deno.env.get("SUPABASE_URL");
+  return {
+    base_url: Deno.env.get("SPVFACTORY_BASE_URL") ?? (url ? `${url}/functions/v1` : null),
+    tenant_id: Deno.env.get("SPVFACTORY_TENANT_ID") ?? null,
+    env: Deno.env.get("SPVFACTORY_ENV") ?? "production",
+    allowed_roles: allowedRoles(),
+  };
+}
+
 export function serveFunction(
   handler: FunctionHandler,
-  options: { parseBody?: boolean } = {},
+  options: { parseBody?: boolean; requireRole?: boolean } = {},
 ): void {
   Deno.serve(async (req: Request) => {
     if (req.method === "OPTIONS") {
@@ -129,7 +153,7 @@ export function serveFunction(
     }
     try {
       const db = serviceClient();
-      const caller = await requireCaller(req, db);
+      const caller = await requireCaller(req, db, { requireRole: options.requireRole });
       const body = options.parseBody === false ? {} : await parseJsonBody(req);
       return await handler({ db, req, body, caller });
     } catch (error) {

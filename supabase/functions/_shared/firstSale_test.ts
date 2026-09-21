@@ -22,7 +22,7 @@ for (const type of ["SUBSCRIPTION_SIGNED", "FUNDS_RECEIVED", "FUNDS_CLEARED"] as
 }
 
 Deno.test("irrevocable commitment starts the clock at the commitment time", () => {
-  const plan = planFirstSale("IRREVOCABLE_COMMITMENT", null, at);
+  const plan = planFirstSale("IRREVOCABLE_COMMITMENT", null, at, at);
   assertEquals(plan.clockStarted, true);
   assertEquals(plan.updates.first_sale_date, "2026-03-01T12:00:00.000Z");
   assertEquals(plan.updates.irrevocable_commitment_at, "2026-03-01T12:00:00.000Z");
@@ -41,6 +41,15 @@ Deno.test("second irrevocable commitment never restarts the clock", () => {
   assertEquals(plan.clockAlreadyRunning, true);
   assertEquals(plan.updates, {});
   assertEquals(plan.filingDeadline, "2026-02-16T00:00:00.000Z");
+});
+
+Deno.test("a first sale recorded after its window closed is OVERDUE immediately", () => {
+  const late = new Date("2026-01-01T00:00:00.000Z");
+  const now = new Date("2026-02-01T00:00:00.000Z");
+  const plan = planFirstSale("IRREVOCABLE_COMMITMENT", null, late, now);
+  assertEquals(plan.clockStarted, true);
+  assertEquals(plan.updates.status, "OVERDUE");
+  assertEquals(plan.updates.filing_deadline, "2026-01-16T00:00:00.000Z");
 });
 
 Deno.test("a FILED record is never moved back to PENDING", () => {

@@ -82,7 +82,6 @@ serveFunction(async ({ db, body }) => {
       already_assigned: false,
       responsible_party_id: claimed.id,
       name: claimed.name,
-      email: claimed.email,
       ein_count_this_month: claimed.ein_count_this_month,
       ein_request_id: einRequestId,
       irs_calendar_date: today,

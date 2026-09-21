@@ -50,6 +50,7 @@ export function planFirstSale(
   commitmentType: CommitmentType,
   existing: FirstSaleFiling | null,
   committedAt: Date,
+  now: Date = new Date(),
 ): FirstSalePlan {
   const iso = committedAt.toISOString();
   const field = TIMESTAMP_FIELD[commitmentType];
@@ -64,8 +65,13 @@ export function planFirstSale(
   if (commitmentType === "IRREVOCABLE_COMMITMENT" && !clockAlreadyRunning) {
     clockStarted = true;
     updates.first_sale_date = iso;
-    updates.filing_deadline = addCalendarDays(committedAt, FORM_D_FILING_WINDOW_DAYS).toISOString();
-    if (existing?.status !== "FILED") updates.status = "PENDING";
+    const deadline = addCalendarDays(committedAt, FORM_D_FILING_WINDOW_DAYS);
+    updates.filing_deadline = deadline.toISOString();
+    if (existing?.status !== "FILED") {
+      // A late-recorded first sale whose window has already closed is OVERDUE now,
+      // not PENDING; the deadline tracker would otherwise only catch it tomorrow.
+      updates.status = deadline.getTime() < now.getTime() ? "OVERDUE" : "PENDING";
+    }
   } else if (!existing) {
     // A brand-new record before any first sale: no filing obligation yet.
     updates.status = "NOT_REQUIRED";

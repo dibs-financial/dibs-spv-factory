@@ -1,7 +1,7 @@
-import { LEDGER_HASH_PREIMAGE } from "../../../schemas/constants.ts";
+import { LEDGER_EVENT_TYPES, LEDGER_HASH_PREIMAGE } from "../../../schemas/constants.ts";
 import { ok, serveFunction } from "../_shared/http.ts";
 import { appendLedgerEntry } from "../_shared/ledger.ts";
-import { optionalObject, optionalString, requireString } from "../_shared/validate.ts";
+import { optionalObject, optionalString, requireEnum, requireString } from "../_shared/validate.ts";
 
 /**
  * Hash-Chained Series Registry Append
@@ -21,22 +21,27 @@ import { optionalObject, optionalString, requireString } from "../_shared/valida
  */
 serveFunction(async ({ db, body, caller }) => {
   const spv_id = requireString(body, "spv_id");
-  const event_type = requireString(body, "event_type");
+  const event_type = requireEnum(body, "event_type", LEDGER_EVENT_TYPES);
   const event_data = optionalObject(body, "event_data");
-  const actor = optionalString(body, "actor") ?? (caller.is_service ? "system" : caller.email ?? caller.id ?? "user");
+
+  // Human callers cannot label the event: actor and actor_role are taken from
+  // the authenticated user. Service tokens (workflows) may name the workflow.
+  const actor = caller.is_service ? optionalString(body, "actor") ?? "system" : caller.email ?? caller.id ?? "user";
+  const actor_role = caller.is_service ? optionalString(body, "actor_role") : caller.roles.join(",");
 
   const { entry, attempts } = await appendLedgerEntry(db, {
     spv_id,
     event_type,
     event_data,
     actor,
-    actor_role: optionalString(body, "actor_role"),
+    actor_role,
     series_id: optionalString(body, "series_id"),
     correlation_id: optionalString(body, "correlation_id"),
   });
 
   return ok({
     entry_id: entry.id,
+    actor,
     hash: entry.hash,
     previous_hash: entry.previous_hash,
     sequence: entry.sequence,

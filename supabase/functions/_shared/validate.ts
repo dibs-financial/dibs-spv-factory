@@ -77,9 +77,14 @@ export function numberOption(
 }
 
 /** Parses an optional ISO-8601 timestamp; rejects unparseable or far-future values. */
-export function optionalPastTimestamp(body: Body, key: string, now = new Date()): Date | undefined {
+export function optionalPastTimestamp(
+  body: Body,
+  key: string,
+  opts: { now?: Date; maxAgeDays?: number; overrideKey?: string } = {},
+): Date | undefined {
   const raw = optionalString(body, key);
   if (raw === undefined) return undefined;
+  const now = opts.now ?? new Date();
   const parsed = new Date(raw);
   if (!Number.isFinite(parsed.getTime())) {
     throw new HttpError(400, "INVALID_FIELD", `${key} must be an ISO-8601 timestamp.`);
@@ -87,6 +92,19 @@ export function optionalPastTimestamp(body: Body, key: string, now = new Date())
   const skewMs = 5 * 60 * 1000;
   if (parsed.getTime() > now.getTime() + skewMs) {
     throw new HttpError(400, "INVALID_FIELD", `${key} may not be in the future.`);
+  }
+  if (opts.maxAgeDays !== undefined) {
+    const ageDays = (now.getTime() - parsed.getTime()) / (24 * 60 * 60 * 1000);
+    const acknowledged = opts.overrideKey !== undefined && body[opts.overrideKey] === true;
+    if (ageDays > opts.maxAgeDays && !acknowledged) {
+      throw new HttpError(
+        400,
+        "TIMESTAMP_TOO_OLD",
+        `${key} is more than ${opts.maxAgeDays} days in the past.` +
+          (opts.overrideKey ? ` If this late entry is intentional, send ${opts.overrideKey}: true.` : ""),
+        { [key]: parsed.toISOString(), age_days: Math.floor(ageDays) },
+      );
+    }
   }
   return parsed;
 }

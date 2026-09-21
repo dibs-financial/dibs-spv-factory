@@ -1,6 +1,6 @@
 import { ALERT_SEVERITIES, ALERT_TYPES } from "../../../schemas/constants.ts";
 import type { AlertRow } from "../../../schemas/types.ts";
-import { ok, serveFunction } from "../_shared/http.ts";
+import { HttpError, ok, serveFunction } from "../_shared/http.ts";
 import { unwrap } from "../_shared/records.ts";
 import {
   optionalObject,
@@ -16,10 +16,20 @@ import {
  * agent is permitted to perform. Never writes to SPV, covenant, approval,
  * or disbursement fields.
  */
-serveFunction(async ({ db, body }) => {
+serveFunction(async ({ db, body, caller }) => {
   const spv_id = requireString(body, "spv_id");
   const alert_type = requireEnum(body, "alert_type", ALERT_TYPES);
   const severity = requireEnum(body, "severity", ALERT_SEVERITIES);
+
+  // Sanctions hits and CRITICAL escalations drive human review; only the
+  // monitoring workflow (service token) may raise them.
+  if (!caller.is_service && (alert_type === "OFAC_FLAG" || severity === "CRITICAL")) {
+    throw new HttpError(
+      403,
+      "SERVICE_TOKEN_REQUIRED",
+      "OFAC_FLAG alerts and CRITICAL severity may only be logged by the monitoring workflow (service token).",
+    );
+  }
 
   const entry = unwrap(
     await db.from("alert_log").insert({

@@ -41,13 +41,37 @@ First-sale tracking: Irrevocable contractual commitment only. Soft circle is not
 
 NOTICE.md, LICENSE, LICENSE-MIT, LICENSE-PROPRIETARY, CONTRIBUTING.md
 docs/
+schemas/constants.ts          (shared enums — imported by schemas and functions)
 schemas/entity-definitions.ts
-functions/   (operational engine — LICENSE-PROPRIETARY)
+functions/                    (operational engine — LICENSE-PROPRIETARY)
+functions/_shared/            (auth, validation, hash chain, first-sale rules, tests)
 workflows/README.md
+deno.json                     (fmt / lint / check / test tasks)
 
 ## Status
 
-Formation gate, ledger append, EIN rotation, Form D timestamps, and capital-call create exist as source in this dump. Runtime lives on Base44. Control gaps remain (ledger mutability, EIN race, RLS).
+Formation gate, ledger append and verification, EIN rotation, Form D timestamps, and capital-call create exist as source in this dump. Runtime lives on Base44.
+
+Controls in source:
+
+- Every function requires a Base44 service token or a user whose role is in `DIBS_FUNCTION_ALLOWED_ROLES` (default `admin`).
+- Only `IRREVOCABLE_COMMITMENT` starts the Form D clock, measured from the caller-supplied `committed_at`.
+- Ledger entries carry a `sequence` and a documented hash preimage; concurrent appends onto the same head are detected and reported as `LEDGER_FORK`. `verifySeriesLedger` recomputes a whole chain.
+- Escalations are cleared by appending `ESCALATION_RESOLVED`, never by editing the ledger.
+- Responsible-party claims use the IRS Eastern calendar day, an optimistic claim token, and are idempotent per SPV through `EINRequest`.
+
+Control gaps that remain: Base44 has no transactions, so fork and claim detection is post-write rather than preventive; RLS is platform configuration and is not enforced here.
+
+## Local checks
+
+Requires Deno 2.x. The same tasks run in CI (`.github/workflows/deno.yml`).
+
+```
+deno task ci        # fmt --check, lint, type check, unit tests
+deno task test      # unit tests only
+```
+
+Functions import shared code from `functions/_shared/` and `schemas/constants.ts`. If the Base44 deployment target only accepts single-file functions, bundle before upload rather than copying the shared code into each file.
 
 Phase 3 pack (document generate + e-sign) is not in this repository. All Rights Reserved.
 
@@ -59,7 +83,7 @@ DIBS Covenant Monitor — Hourly — LTV, milestones, KYC, OFAC, Form D — writ
 
 Form D Deadline Tracker — Daily 8am UTC — Operational +15 calendar-day clock. Not counsel's Rule 503 calendar.
 
-SPV Formation Pipeline — Every 15 min — Stage hops with statutory gate
+SPV Formation Pipeline — Every 15 min — Stage hops behind checkFormationGate (statutory gate + unresolved escalations)
 
 Investor Onboarding Monitor — Hourly — KYC escalation, capital calls, first-sale
 

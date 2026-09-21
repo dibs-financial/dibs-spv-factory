@@ -1,92 +1,70 @@
-import { createClientFromRequest } from 'npm:@base44/sdk@0.8.31';
+import { FORMATION_STAGES } from "../schemas/constants.ts";
+import { fail, ok, serveFunction } from "./_shared/http.ts";
+import { escalationState, type LedgerRecord } from "./_shared/ledger.ts";
+import { getActiveMasterEntity, masterHasLiabilityNotice } from "./_shared/master.ts";
+import { requireEnum, requireString } from "./_shared/validate.ts";
 
 /**
  * Formation Pipeline Gate — Pre-flight Check
- * 
+ *
  * Runs before each formation stage transition. Checks:
- * 1. Master entity statutory gate (§ 18-215(b) liability notice)
- * 2. Whether the SPV is already in the target stage (idempotency)
- * 3. Whether the SPV is blocked (EIN_PENDING_MANUAL or BLOCKED status)
- * 
+ * 1. Master entity statutory gate (§ 18-215(b) liability notice; exactly one ACTIVE master).
+ * 2. Whether the SPV has an unresolved ESCALATION in the series ledger. An
+ *    escalation is cleared by appending an ESCALATION_RESOLVED event, never by
+ *    editing the ledger.
+ *
+ * The SPV's own stage lives in the deal-model app and cannot be read from this
+ * app's service context, so idempotency against the target stage is enforced
+ * by the workflow step that calls this gate.
+ *
  * Returns a go/no-go decision with evidence.
  */
-Deno.serve(async (req: Request) => {
-  const base44 = createClientFromRequest(req);
-  try {
-    const body = await req.json();
-    const { spv_id, target_stage } = body;
+serveFunction(async ({ base44, body }) => {
+  const spv_id = requireString(body, "spv_id");
+  const target_stage = requireEnum(body, "target_stage", FORMATION_STAGES);
 
-    if (!spv_id || !target_stage) {
-      return Response.json({
-        error: "MISSING_REQUIRED_FIELDS",
-        message: "spv_id and target_stage are required."
-      }, { status: 400 });
-    }
-
-    // 1. Check statutory gate
-    const masterResult = await base44.entities.MasterEntity.filter({ status: "ACTIVE" });
-    
-    if (!masterResult || masterResult.length === 0) {
-      return Response.json({
+  const master = await getActiveMasterEntity(base44);
+  if (!masterHasLiabilityNotice(master)) {
+    return fail(
+      422,
+      "STATUTORY_BLOCK",
+      "Master Certificate of Formation missing § 18-215(b) liability notice. HARD BLOCK.",
+      {
         gate_passed: false,
         spv_id,
         target_stage,
-        error: "STATUTORY_BLOCK",
-        message: "No active master entity. All formation is blocked."
-      }, { status: 422 });
-    }
-
-    const master = masterResult[0].data || masterResult[0];
-    if (!master.has_liability_notice) {
-      return Response.json({
-        gate_passed: false,
-        spv_id,
-        target_stage,
-        error: "STATUTORY_BLOCK",
-        message: "Master Certificate of Formation missing § 18-215(b) liability notice. HARD BLOCK."
-      }, { status: 422 });
-    }
-
-    // 2. Check SPV status — we need to read cross-app from Solene/Zevia
-    // Since this function runs in the Elara app, we can only check Elara entities.
-    // The SPV status check is done by the agent in the workflow step.
-    // Here we verify the statutory gate and return the decision.
-
-    // 3. Check for blocked SPVs in our registry
-    const blockedEntries = await base44.entities.SeriesRegistryLog.filter({ 
-      spv_id, 
-      event_type: "ESCALATION" 
-    });
-
-    if (blockedEntries && blockedEntries.length > 0) {
-      const latestEscalation = blockedEntries.sort((a: any, b: any) => {
-        return new Date(b.created_date).getTime() - new Date(a.created_date).getTime();
-      })[0];
-      const escData = (latestEscalation.data || latestEscalation).event_data;
-      
-      return Response.json({
-        gate_passed: false,
-        spv_id,
-        target_stage,
-        error: "ESCALATION_BLOCK",
-        message: `SPV has an active escalation. Last escalation: ${JSON.stringify(escData)}. Resolve before proceeding.`,
-        escalation_entry_id: latestEscalation.id
-      }, { status: 422 });
-    }
-
-    return Response.json({
-      gate_passed: true,
-      spv_id,
-      target_stage,
-      master_entity: master.legal_name,
-      message: `Gate passed for SPV ${spv_id} → ${target_stage}. Statutory check clear, no escalations.`
-    });
-
-  } catch (error: any) {
-    return Response.json({
-      gate_passed: false,
-      error: "SYSTEM_ERROR",
-      message: error?.message || "Formation gate check failed."
-    }, { status: 500 });
+      },
+    );
   }
+
+  const escalationEvents = (await base44.entities.SeriesRegistryLog.filter({
+    spv_id,
+    event_type: { $in: ["ESCALATION", "ESCALATION_RESOLVED"] },
+  })) as LedgerRecord[];
+  const state = escalationState(escalationEvents);
+
+  if (state.active && state.escalation) {
+    return fail(
+      422,
+      "ESCALATION_BLOCK",
+      "SPV has an unresolved escalation. Append an ESCALATION_RESOLVED ledger event before proceeding.",
+      {
+        gate_passed: false,
+        spv_id,
+        target_stage,
+        escalation_entry_id: state.escalation.id,
+        escalated_at: state.escalation.timestamp ?? state.escalation.created_date,
+        escalation: state.escalation.event_data,
+      },
+    );
+  }
+
+  return ok({
+    gate_passed: true,
+    spv_id,
+    target_stage,
+    master_entity: master.legal_name,
+    last_escalation_resolved_at: state.resolution?.timestamp ?? null,
+    message: `Gate passed for SPV ${spv_id} → ${target_stage}. Statutory check clear, no unresolved escalations.`,
+  });
 });

@@ -1,4 +1,6 @@
-import { createClientFromRequest } from 'npm:@base44/sdk@0.8.31';
+import { ALERT_SEVERITIES, ALERT_TYPES } from "../schemas/constants.ts";
+import { ok, serveFunction } from "./_shared/http.ts";
+import { optionalObject, optionalString, optionalStringArray, requireEnum, requireString } from "./_shared/validate.ts";
 
 /**
  * Alert Logger — Write-only function for the covenant monitoring layer.
@@ -6,75 +8,29 @@ import { createClientFromRequest } from 'npm:@base44/sdk@0.8.31';
  * agent is permitted to perform. Never writes to SPV, covenant, approval,
  * or disbursement fields.
  */
-Deno.serve(async (req: Request) => {
-  const base44 = createClientFromRequest(req);
-  try {
-    const body = await req.json();
-    const {
-      spv_id,
-      alert_type,
-      severity,
-      covenant_type,
-      evidence,
-      deal_id,
-      recommended_action,
-      escalated_to,
-      channels_sent
-    } = body;
+serveFunction(async ({ base44, body }) => {
+  const spv_id = requireString(body, "spv_id");
+  const alert_type = requireEnum(body, "alert_type", ALERT_TYPES);
+  const severity = requireEnum(body, "severity", ALERT_SEVERITIES);
 
-    if (!spv_id || !alert_type || !severity) {
-      return Response.json({
-        error: "MISSING_REQUIRED_FIELDS",
-        message: "spv_id, alert_type, and severity are required."
-      }, { status: 400 });
-    }
+  const entry = await base44.entities.AlertLog.create({
+    spv_id,
+    alert_type,
+    severity,
+    covenant_type: optionalString(body, "covenant_type"),
+    evidence: optionalObject(body, "evidence") ?? {},
+    deal_id: optionalString(body, "deal_id"),
+    recommended_action: optionalString(body, "recommended_action"),
+    escalated_to: optionalString(body, "escalated_to"),
+    channels_sent: optionalStringArray(body, "channels_sent") ?? [],
+    acknowledged: false,
+  });
 
-    const validSeverities = ["INFO", "WARNING", "CRITICAL"];
-    if (!validSeverities.includes(severity)) {
-      return Response.json({
-        error: "INVALID_SEVERITY",
-        message: `severity must be one of: ${validSeverities.join(", ")}`
-      }, { status: 400 });
-    }
-
-    const validAlertTypes = [
-      "LTV_BREACH", "MILESTONE_OVERDUE", "KYC_EXCEPTION", "OFAC_FLAG",
-      "FORM_D_OVERDUE", "BLUE_SKY_OVERDUE", "EIN_FAILURE", "WIRE_FAILURE",
-      "COMPLIANCE_CHECK_PASS", "ESCALATION"
-    ];
-    if (!validAlertTypes.includes(alert_type)) {
-      return Response.json({
-        error: "INVALID_ALERT_TYPE",
-        message: `alert_type must be one of: ${validAlertTypes.join(", ")}`
-      }, { status: 400 });
-    }
-
-    const entry = await base44.entities.AlertLog.create({
-      spv_id,
-      alert_type,
-      severity,
-      covenant_type: covenant_type || null,
-      evidence: evidence || {},
-      deal_id: deal_id || spv_id,
-      recommended_action: recommended_action || null,
-      escalated_to: escalated_to || null,
-      channels_sent: channels_sent || [],
-      acknowledged: false
-    });
-
-    return Response.json({
-      success: true,
-      alert_id: entry.id,
-      severity,
-      alert_type,
-      spv_id,
-      message: `Alert logged: ${alert_type} (${severity}) for SPV ${spv_id}`
-    });
-  } catch (error: any) {
-    return Response.json({
-      success: false,
-      error: "SYSTEM_ERROR",
-      message: error?.message || "Failed to log alert."
-    }, { status: 500 });
-  }
+  return ok({
+    alert_id: entry.id,
+    severity,
+    alert_type,
+    spv_id,
+    message: `Alert logged: ${alert_type} (${severity}) for SPV ${spv_id}`,
+  });
 });

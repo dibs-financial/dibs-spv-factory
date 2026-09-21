@@ -1,151 +1,100 @@
-import { createClientFromRequest } from 'npm:@base44/sdk@0.8.31';
+import { COMMITMENT_TYPES, FORM_D_FILING_WINDOW_DAYS } from "../schemas/constants.ts";
+import { type FirstSaleFiling, planFirstSale } from "./_shared/firstSale.ts";
+import { ok, serveFunction } from "./_shared/http.ts";
+import { appendLedgerEntry } from "./_shared/ledger.ts";
+import { type Rec, toMillis } from "./_shared/records.ts";
+import { optionalPastTimestamp, optionalString, requireEnum, requireString } from "./_shared/validate.ts";
 
 /**
  * First-Sale Clock Trigger — Form D Deadline Engine
- * 
- * When an investor becomes irrevocably contractually committed, this function:
- * 1. Sets irrevocable_commitment_at on the FormDFiling record
- * 2. Calculates the 15-day filing deadline (irrevocable_commitment_at + 15 days)
- * 3. Sets first_sale_date to the irrevocable commitment date
- * 4. Updates status to PENDING (filing required)
- * 
- * GUARDRAIL: Do not treat a soft circle as a first sale.
- * Do not infer first sale solely from bank receipt.
+ *
+ * Records commitment milestones on the SPV's FormDFiling record. Only an
+ * IRREVOCABLE_COMMITMENT is a first sale: it sets irrevocable_commitment_at
+ * and first_sale_date, computes filing_deadline (+15 calendar days) and moves
+ * the filing to PENDING. Every other commitment type is recorded as a
+ * timestamp and never starts the clock.
+ *
+ * GUARDRAILS (README "First-sale tracking"):
+ *   Soft circle is not a first sale. Bank receipt is not a first sale.
+ *   E-sign SIGNED is not a first sale. The clock is never restarted.
+ *
+ * Body:
+ *   spv_id           required
+ *   commitment_type  required, one of COMMITMENT_TYPES
+ *   committed_at     optional ISO timestamp of the actual commitment (default
+ *                    now). Pass it so the clock starts at the commitment, not
+ *                    at the next monitor run.
+ *   subscription_id, investor_id  optional, recorded in the ledger event.
  */
-Deno.serve(async (req: Request) => {
-  const base44 = createClientFromRequest(req);
-  try {
-    const body = await req.json();
-    const { spv_id, commitment_type, subscription_id, investor_id } = body;
+type FilingRecord = Rec<FirstSaleFiling & { spv_id: string }>;
 
-    if (!spv_id || !commitment_type) {
-      return Response.json({
-        error: "MISSING_REQUIRED_FIELDS",
-        message: "spv_id and commitment_type are required."
-      }, { status: 400 });
+serveFunction(async ({ base44, body }) => {
+  const spv_id = requireString(body, "spv_id");
+  const commitment_type = requireEnum(body, "commitment_type", COMMITMENT_TYPES);
+  const committedAt = optionalPastTimestamp(body, "committed_at") ?? new Date();
+  const subscription_id = optionalString(body, "subscription_id");
+  const investor_id = optionalString(body, "investor_id");
+
+  // One FormDFiling per SPV is the invariant; if duplicates exist, the oldest is canonical.
+  const filings = (await base44.entities.FormDFiling.filter({ spv_id })) as FilingRecord[];
+  filings.sort((a, b) => toMillis(a.created_date) - toMillis(b.created_date));
+  const existing = filings[0] ?? null;
+
+  const plan = planFirstSale(commitment_type, existing, committedAt);
+
+  let filingId: string;
+  if (existing) {
+    filingId = existing.id;
+    if (Object.keys(plan.updates).length > 0) {
+      await base44.entities.FormDFiling.update(existing.id, plan.updates);
     }
-
-    // Validate commitment type — only irrevocable commitment triggers the clock
-    const validTypes = ["IRREVOCABLE_COMMITMENT", "SOFT_CIRCLE", "SUBSCRIPTION_SIGNED", "FUNDS_RECEIVED", "FUNDS_CLEARED"];
-    if (!validTypes.includes(commitment_type)) {
-      return Response.json({
-        error: "INVALID_COMMITMENT_TYPE",
-        message: `commitment_type must be one of: ${validTypes.join(", ")}`
-      }, { status: 400 });
-    }
-
-    // Soft circles do NOT trigger the Form D clock
-    if (commitment_type === "SOFT_CIRCLE") {
-      // Still record it, but don't start the clock
-      const filings = await base44.entities.FormDFiling.filter({ spv_id });
-      if (filings && filings.length > 0) {
-        const filing = filings[0];
-        await base44.entities.FormDFiling.update(filing.id, {
-          soft_circle_at: new Date().toISOString()
-        });
-        return Response.json({
-          success: true,
-          clock_started: false,
-          message: "Soft circle recorded. Form D clock NOT started — soft circle is not a first sale."
-        });
-      }
-    }
-
-    const now = new Date();
-    const nowISO = now.toISOString();
-    const deadline = new Date(now.getTime() + 15 * 24 * 60 * 60 * 1000);
-    const deadlineISO = deadline.toISOString();
-
-    // Find the FormDFiling record for this SPV
-    const filings = await base44.entities.FormDFiling.filter({ spv_id });
-    
-    let filing;
-    let is_first_sale = false;
-
-    if (!filings || filings.length === 0) {
-      // Create a new FormDFiling record if none exists
-      filing = await base44.entities.FormDFiling.create({
-        spv_id,
-        status: "PENDING",
-        first_sale_date: nowISO,
-        irrevocable_commitment_at: nowISO,
-        filing_deadline: deadlineISO,
-        subscription_signed_at: commitment_type === "SUBSCRIPTION_SIGNED" ? nowISO : undefined,
-        funds_received_at: commitment_type === "FUNDS_RECEIVED" ? nowISO : undefined,
-        funds_cleared_at: commitment_type === "FUNDS_CLEARED" ? nowISO : undefined
-      });
-      is_first_sale = true;
-    } else {
-      filing = filings[0];
-      const existing = filing.data || filing;
-      
-      // Check if first sale was already recorded
-      if (existing.irrevocable_commitment_at) {
-        // Already has a first sale — just update the relevant timestamp
-        const updates: any = {};
-        if (commitment_type === "SUBSCRIPTION_SIGNED" && !existing.subscription_signed_at) {
-          updates.subscription_sent_at = nowISO;
-        }
-        if (commitment_type === "FUNDS_RECEIVED" && !existing.funds_received_at) {
-          updates.funds_received_at = nowISO;
-        }
-        if (commitment_type === "FUNDS_CLEARED" && !existing.funds_cleared_at) {
-          updates.funds_cleared_at = nowISO;
-        }
-        
-        if (Object.keys(updates).length > 0) {
-          await base44.entities.FormDFiling.update(filing.id, updates);
-        }
-
-        return Response.json({
-          success: true,
-          clock_started: false,
-          spv_id,
-          first_sale_date: existing.irrevocable_commitment_at,
-          filing_deadline: existing.filing_deadline,
-          message: "First sale already recorded. Updated additional timestamp only."
-        });
-      }
-
-      // Record the first irrevocable commitment — START THE CLOCK
-      const updates: any = {
-        status: "PENDING",
-        first_sale_date: nowISO,
-        irrevocable_commitment_at: nowISO,
-        filing_deadline: deadlineISO
-      };
-
-      if (commitment_type === "SUBSCRIPTION_SIGNED") {
-        updates.subscription_signed_at = nowISO;
-      }
-      if (commitment_type === "FUNDS_RECEIVED") {
-        updates.funds_received_at = nowISO;
-      }
-      if (commitment_type === "FUNDS_CLEARED") {
-        updates.funds_cleared_at = nowISO;
-      }
-
-      await base44.entities.FormDFiling.update(filing.id, updates);
-      is_first_sale = true;
-    }
-
-    return Response.json({
-      success: true,
-      clock_started: is_first_sale,
-      spv_id,
-      first_sale_date: nowISO,
-      filing_deadline: deadlineISO,
-      days_remaining: 15,
-      message: is_first_sale 
-        ? `Form D clock STARTED. First sale at ${nowISO}. Filing deadline: ${deadlineISO} (15 days).`
-        : "Timestamp updated. Form D clock already running."
-    });
-
-  } catch (error: any) {
-    return Response.json({
-      success: false,
-      error: "SYSTEM_ERROR",
-      message: error?.message || "Failed to trigger first-sale clock."
-    }, { status: 500 });
+  } else {
+    const created = (await base44.entities.FormDFiling.create({ spv_id, ...plan.updates })) as FilingRecord;
+    filingId = created.id;
   }
+
+  let ledger: { entry_id: string; hash: string } | { error: string } | null = null;
+  if (plan.clockStarted) {
+    try {
+      const appended = await appendLedgerEntry(base44, {
+        spv_id,
+        event_type: "FIRST_SALE_RECORDED",
+        event_data: {
+          form_d_filing_id: filingId,
+          first_sale_date: plan.firstSaleDate,
+          filing_deadline: plan.filingDeadline,
+          subscription_id,
+          investor_id,
+        },
+      });
+      ledger = { entry_id: appended.entry.id, hash: appended.entry.hash };
+    } catch (error) {
+      console.error("FIRST_SALE_RECORDED ledger append failed", error);
+      ledger = { error: error instanceof Error ? error.message : "Unexpected error." };
+    }
+  }
+
+  const daysRemaining = plan.filingDeadline
+    ? Math.ceil((toMillis(plan.filingDeadline) - Date.now()) / (24 * 60 * 60 * 1000))
+    : null;
+
+  return ok({
+    success: ledger === null || !("error" in ledger),
+    spv_id,
+    form_d_filing_id: filingId,
+    commitment_type,
+    recorded_at: committedAt.toISOString(),
+    clock_started: plan.clockStarted,
+    clock_running: plan.clockStarted || plan.clockAlreadyRunning,
+    first_sale_date: plan.firstSaleDate ?? null,
+    filing_deadline: plan.filingDeadline ?? null,
+    days_remaining: daysRemaining,
+    duplicate_filing_records: Math.max(0, filings.length - 1),
+    ledger,
+    message: plan.clockStarted
+      ? `Form D clock STARTED. First sale at ${plan.firstSaleDate}. Filing deadline: ${plan.filingDeadline} (${FORM_D_FILING_WINDOW_DAYS} days).`
+      : plan.clockAlreadyRunning
+      ? `${commitment_type} recorded. Form D clock already running since ${plan.firstSaleDate}.`
+      : `${commitment_type} recorded. Form D clock NOT started — only an irrevocable commitment is a first sale.`,
+  });
 });

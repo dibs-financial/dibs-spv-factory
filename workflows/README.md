@@ -15,12 +15,12 @@ Workflows are deployed and managed via the Base44 platform. This directory docum
 
 ## SPV Formation Pipeline
 - **Trigger:** Scheduled, every 15 minutes (cron: `*/15 * * * *`, UTC)
-- **Activity:** `invoke_superagent_step` — reads pending SPVs from Zevia app, advances through 13-stage formation pipeline
+- **Activity:** `invoke_superagent_step` — reads pending SPVs from Zevia app, advances through the 14-stage formation pipeline (plus hold states BLOCKED, EIN_PENDING_MANUAL, PENDING_STATE_FILING)
 - **Pipeline Stages:** INTAKE → SERIES_CREATED → EIN_PENDING → EIN_RECEIVED → BANK_PENDING → BANK_READY → DOCS_PENDING → DOCS_EXECUTED → KYC_BATCH_PENDING → KYC_COMPLETE → CAPITAL_CALL_PENDING → CAPITAL_RECEIVED → REGULATORY_PENDING → INVESTOR_READY
-- **Guardrails:** Statutory gate checked before every transition. Every transition logged to hash-chain ledger. Escalates on any gate failure.
+- **Guardrails:** `checkFormationGate` runs before every transition (statutory gate, exactly one ACTIVE master, no unresolved escalation). Every transition logged to hash-chain ledger. Escalates on any gate failure; an escalation is cleared only by appending `ESCALATION_RESOLVED`.
 
 ## Investor Onboarding Monitor
 - **Trigger:** Scheduled, hourly (cron: `0 * * * *`, UTC)
 - **Activity:** `invoke_superagent_step` — monitors investor KYC/AML status, capital calls, first-sale clock, Form D deadlines
 - **Scope:** KYC/AML escalation, capital call processing, irrevocable commitment tracking, Form D deadline monitoring
-- **Guardrails:** KYC/AML hits escalated to human review. Soft circles never trigger Form D clock. Cross-series data never exposed.
+- **Guardrails:** KYC/AML hits escalated to human review. Only an irrevocable commitment starts the Form D clock — soft circles, signed subscriptions and bank receipts are recorded as timestamps only. Pass `committed_at` to `triggerFirstSaleClock` so the clock starts at the commitment, not at the monitor run. Cross-series data never exposed.

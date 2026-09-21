@@ -43,7 +43,7 @@ First-sale tracking: Irrevocable contractual commitment only. Soft circle is not
 ## Repo structure
 
 NOTICE.md, LICENSE, LICENSE-MIT, LICENSE-PROPRIETARY, CONTRIBUTING.md
-docs/                                   (docs/legacy/ holds the Base44-era entity definitions)
+docs/                                   (docs/api.md is the endpoint reference; docs/legacy/ holds the Base44-era entity definitions)
 schemas/constants.ts                    (shared enums — imported by functions; mirrored by the migration)
 schemas/types.ts                        (row types for the tables)
 supabase/migrations/                    (canonical schema — LICENSE-PROPRIETARY)

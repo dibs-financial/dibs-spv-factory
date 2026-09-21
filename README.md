@@ -43,7 +43,7 @@ First-sale tracking: Irrevocable contractual commitment only. Soft circle is not
 ## Repo structure
 
 NOTICE.md, LICENSE, LICENSE-MIT, LICENSE-PROPRIETARY, CONTRIBUTING.md, SECURITY.md
-docs/                                   (docs/api.md endpoint reference; docs/pricing.md revenue streams; docs/legacy/ Base44-era definitions)
+docs/                                   (docs/api.md endpoint reference; docs/pricing.md revenue streams)
 schemas/constants.ts                    (shared enums — imported by functions; mirrored by the migration)
 schemas/types.ts                        (row types for the tables, FeeSchedule shape)
 schemas/pricing.ts                      (tier defaults for deal_configurations.fee_schedule)

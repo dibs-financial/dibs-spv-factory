@@ -76,6 +76,9 @@ export interface EINRequestRow extends ServerFields {
   ein: string | null;
   status: "PENDING" | "ISSUED" | "FAILED" | "THROTTLED" | "MANUAL_REQUIRED";
   irs_confirmation_ref: string | null;
+  submission_channel: "ONLINE" | "PHONE" | "FAX" | "MAIL" | null;
+  submission_at: string | null;
+  exception_code: string | null;
   updated_at: string;
 }
 
@@ -168,4 +171,47 @@ export interface FeeSchedule {
   audit_package_fee: number;
   ein_manual_filing_fee: number;
   currency: "USD";
+}
+
+export type BillingChargeType =
+  | "FORMATION"
+  | "RUSH_FORMATION"
+  | "ADMINISTRATION"
+  | "ONBOARDING"
+  | "FORM_D"
+  | "BLUE_SKY"
+  | "LATE_FILING_REMEDIATION"
+  | "EIN_MANUAL_FILING"
+  | "REGISTERED_SERIES_CONVERSION"
+  | "AUDIT_PACKAGE";
+
+export interface BillingEventRow extends ServerFields {
+  spv_id: string;
+  deal_id: string | null;
+  charge_type: BillingChargeType;
+  tier: PricingTier;
+  tier_source: "deal" | "default";
+  quantity: number;
+  unit_amount: number;
+  amount: number;
+  currency: string;
+  description: string;
+  source_ref: string;
+  source_event_id: string | null;
+  period_start: string | null;
+  period_end: string | null;
+  occurred_at: string;
+  status: "PENDING" | "INVOICED" | "PAID" | "VOID";
+  invoice_ref: string | null;
+  invoiced_at: string | null;
+  paid_at: string | null;
+  updated_at: string;
+}
+
+export interface DealConfigurationRow extends ServerFields {
+  spv_id: string;
+  deal_id: string | null;
+  fee_schedule: Record<string, unknown>;
+  series_type: "PROTECTED" | "REGISTERED";
+  updated_at: string;
 }

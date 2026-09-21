@@ -38,10 +38,14 @@ unless you say so.
   evidence. It is not a legal-record substitute under 6 Del. C. § 18-215(b).
 - Only `IRREVOCABLE_COMMITMENT` starts the Form D clock.
 - Escalations clear only by appending `ESCALATION_RESOLVED`.
-- `OFAC_FLAG` and `CRITICAL` AlertLog rows require a service token. The four
+- `OFAC_FLAG` and `CRITICAL` AlertLog rows require a service token. The five
   scheduled runners (`dibs-*`) accept only the service-role token and act on
   every SPV; every state change they make is a ledger event under their own
   name, and they raise alerts through the same path as `logAlert`.
+- Billing is derived, never authored: `dibs-billing` writes `billing_events`
+  only from recorded facts, every row carries a unique `source_ref`, amounts
+  are flat fees from the fee schedule, and the runner never marks anything
+  invoiced or paid. `billing_events` is admin-only under RLS.
 - Responsible-party claims are a single conditional UPDATE, so two callers can
   never take the same SS-4 signatory. EIN assignment responses return
   `responsible_party_id` and `name`, not email.

@@ -18,6 +18,7 @@ export const FACTORY_FUNCTIONS = {
   "dibs-form-d-deadline-tracker": "POST",
   "dibs-spv-formation-pipeline": "POST",
   "dibs-investor-onboarding-monitor": "POST",
+  "dibs-billing": "POST",
 } as const;
 
 /** Scheduled runners: service-role token only; invoked by pg_cron. */
@@ -26,6 +27,7 @@ export const FACTORY_RUNNERS = [
   "dibs-form-d-deadline-tracker",
   "dibs-spv-formation-pipeline",
   "dibs-investor-onboarding-monitor",
+  "dibs-billing",
 ] as const;
 
 /**

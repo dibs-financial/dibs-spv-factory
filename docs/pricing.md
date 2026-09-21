@@ -60,7 +60,7 @@ The per-deal fee schedule is the `fee_schedule` JSON column on `deal_configurati
 }
 ```
 
-A billing runner (not yet built) would watch `SERIES_CREATED`, `KYC_PASS`, `FORM_D_FILED` and `BLUE_SKY_FILED` plus the administration anniversary, write one `billing_events` row per charge, and hand the rows to Stripe or an invoicing tool.
+The `dibs-billing` runner (daily) watches `SERIES_CREATED`, `KYC_PASS`, `FORM_D_FILED` and `BLUE_SKY_FILED`, the administration anniversary, late Form D filings and manual SS-4 filings, and writes one `billing_events` row per charge with a unique `source_ref` so it never double bills. PENDING rows are exported through the `billing_invoice_feed` view to Stripe or any invoicing tool. See `workflows/README.md`.
 
 ## Decisions
 

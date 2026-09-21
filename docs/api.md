@@ -90,7 +90,7 @@ Response: `form_d_filing_id`, `commitment_type`, `recorded_at`, `clock_started`,
 
 ## Scheduled runners
 
-`POST /dibs-covenant-monitor`, `POST /dibs-form-d-deadline-tracker`, `POST /dibs-spv-formation-pipeline`, `POST /dibs-investor-onboarding-monitor`
+`POST /dibs-covenant-monitor`, `POST /dibs-form-d-deadline-tracker`, `POST /dibs-spv-formation-pipeline`, `POST /dibs-investor-onboarding-monitor`, `POST /dibs-billing`
 
 Invoked by pg_cron with the service-role token; any other caller gets `403 SERVICE_TOKEN_REQUIRED`. Empty body. Each returns `runner`, `started_at`, `duration_ms` and counts of what it found or changed, plus `skipped` for checks that need data outside this repository. What each one does is in `workflows/README.md`. Calling a runner by hand (for example after seeding data) is safe: every action is idempotent and alerts are deduplicated against unacknowledged ones.
 

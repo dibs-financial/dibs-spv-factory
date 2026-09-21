@@ -28,6 +28,7 @@ select cron.schedule('dibs-covenant-monitor',            '0 * * * *',   $$select
 select cron.schedule('dibs-form-d-deadline-tracker',     '0 8 * * *',   $$select public.invoke_factory_runner('dibs-form-d-deadline-tracker')$$);
 select cron.schedule('dibs-spv-formation-pipeline',      '*/15 * * * *', $$select public.invoke_factory_runner('dibs-spv-formation-pipeline')$$);
 select cron.schedule('dibs-investor-onboarding-monitor', '0 * * * *',   $$select public.invoke_factory_runner('dibs-investor-onboarding-monitor')$$);
+select cron.schedule('dibs-billing',                     '30 1 * * *',  $$select public.invoke_factory_runner('dibs-billing')$$);
 ```
 
 Check runs with `select * from cron.job_run_details order by start_time desc limit 20;`.
@@ -86,6 +87,21 @@ The runner observes; it never creates series, EINs, bank accounts, documents, or
 | `KYC_FAIL` ledger event with no later `KYC_PASS` | WARNING `KYC_EXCEPTION` escalated to compliance review |
 | `funds_received_at` set but no `irrevocable_commitment_at` | WARNING `ESCALATION`: bank receipt is never inferred to be a first sale; a human must call `triggerFirstSaleClock` with the real `committed_at` |
 | OFAC, KYC sessions | deal-model tables / connectors not in this repo; reported under `skipped` |
+
+## dibs-billing — daily 01:30 UTC
+Turns recorded facts into `billing_events` rows (migration `20260921020000_billing.sql`). Fee schedule per SPV comes from `deal_configurations.fee_schedule`, falling back to the tier default (SPONSOR) and flagged in the run summary under `default_tier_spvs`.
+
+| Charge | Source | Idempotency key |
+|---|---|---|
+| FORMATION or RUSH_FORMATION | `SERIES_CREATED` ledger event | `ledger:<entry id>` |
+| ONBOARDING | `KYC_PASS` ledger event, per investor | `ledger:<entry id>` |
+| FORM_D | `FORM_D_FILED` ledger event | `ledger:<entry id>` |
+| BLUE_SKY | `BLUE_SKY_FILED` ledger event | `ledger:<entry id>` |
+| ADMINISTRATION | year 0 at formation, each anniversary that has arrived, none after `WIND_DOWN` | `admin:<spv>:<year n>` |
+| LATE_FILING_REMEDIATION | `FORM_D_FILED` after a `STATE_CHANGE` to OVERDUE | `late:<filed event id>` |
+| EIN_MANUAL_FILING | `ein_requests` ISSUED with a non-ONLINE submission channel | `ein_manual:<request id>` |
+
+`source_ref` is unique, so re-running never double charges. New rows are PENDING; the view `billing_invoice_feed` is the export for Stripe or any invoicing tool. Marking rows INVOICED or PAID is done by that integration or by hand; the runner never does it and never writes the ledger. REGISTERED_SERIES_CONVERSION and AUDIT_PACKAGE are raised by hand.
 
 ## Guardrails common to all runners
 - Only an irrevocable commitment starts the Form D clock; runners never call `triggerFirstSaleClock`.

@@ -22,6 +22,7 @@ read_example() { grep -E "^$1=" "$example" | head -1 | cut -d= -f2-; }
 tenant="${SPVFACTORY_TENANT_ID:-$(read_example SPVFACTORY_TENANT_ID)}"
 env_label="${SPVFACTORY_ENV:-$(read_example SPVFACTORY_ENV)}"
 roles="${DIBS_FUNCTION_ALLOWED_ROLES:-$(read_example DIBS_FUNCTION_ALLOWED_ROLES)}"
+cors="${DIBS_CORS_ORIGINS:-}"
 base_url="https://${ref}.supabase.co/functions/v1"
 
 echo "Linking project ${ref}…"
@@ -45,6 +46,7 @@ SPVFACTORY_ENV=${env_label}
 DIBS_FUNCTION_ALLOWED_ROLES=${roles}
 ENV
 [ -n "${DIBS_EIN_MONTHLY_CAP:-}" ] && echo "DIBS_EIN_MONTHLY_CAP=${DIBS_EIN_MONTHLY_CAP}" >> "$tmp"
+[ -n "$cors" ] && echo "DIBS_CORS_ORIGINS=${cors}" >> "$tmp"
 
 echo "Setting secrets on ${ref}…"
 npx --yes supabase secrets set --project-ref "$ref" --env-file "$tmp"

@@ -20,8 +20,13 @@ unless you say so.
   `supabase/migrations/`: admins have full access; compliance reviewers and
   counsel can read the ledger, alerts, and Form D filings; nobody else has
   direct table access.
-- Unexpected errors return a generic `SYSTEM_ERROR`. The underlying message is
-  logged, not sent to the client.
+- Unexpected errors return a generic `SYSTEM_ERROR` / "Unexpected error." The
+  underlying message is logged, not sent to the client.
+- Browser access is limited to the origins in `DIBS_CORS_ORIGINS`. Unset keeps
+  `*` for Lovable preview; production must set it.
+- `committed_at` on the first-sale clock is rejected when older than the 15-day
+  Form D window unless `acknowledge_late: true` is sent, in which case the
+  filing is created already `OVERDUE`.
 - Series registry events are allowlisted (`LEDGER_EVENT_TYPES`). Human callers
   cannot set `actor` / `actor_role`; those fields come from the authenticated
   user and their roles. Service tokens may label the workflow.

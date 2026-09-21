@@ -80,7 +80,7 @@ deno task test      # unit tests only
 
 1. Apply `supabase/migrations/20260921000000_dibs_spv_factory.sql` (Lovable Cloud applies migrations from `supabase/migrations/` automatically; with the CLI use `supabase db push`).
 2. Deploy the functions: `supabase functions deploy` deploys every folder under `supabase/functions/`. `SUPABASE_URL`, `SUPABASE_ANON_KEY` and `SUPABASE_SERVICE_ROLE_KEY` are provided automatically.
-3. Set the factory secrets listed in `supabase/functions/.env.example` (`SPVFACTORY_BASE_URL`, `SPVFACTORY_API_KEY`, `SPVFACTORY_TENANT_ID`, `SPVFACTORY_ENV`, `DIBS_FUNCTION_ALLOWED_ROLES`) under Cloud → Secrets in Lovable, or run `scripts/lovable-secrets.sh <project-ref>` with a Supabase access token. Confirm with a call to `factoryInfo`.
+3. Set the factory secrets listed in `supabase/functions/.env.example` (`SPVFACTORY_BASE_URL`, `SPVFACTORY_API_KEY`, `SPVFACTORY_TENANT_ID`, `SPVFACTORY_ENV`, `DIBS_FUNCTION_ALLOWED_ROLES`, and in production `DIBS_CORS_ORIGINS`) under Cloud → Secrets in Lovable, or run `scripts/lovable-secrets.sh <project-ref>` with a Supabase access token. Confirm with a call to `factoryInfo`.
 4. Grant operators a role: insert into `public.user_roles (user_id, role)`.
 5. Create the schedules in `workflows/README.md` with pg_cron.
 

@@ -4,11 +4,41 @@ import { isPlainObject, unwrap } from "./records.ts";
 
 export { HttpError };
 
-export const corsHeaders = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-  "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
-};
+/**
+ * Origins allowed to call the functions from a browser. DIBS_CORS_ORIGINS is a
+ * comma-separated allowlist; unset means "*" (Lovable preview). Set it in
+ * production, e.g. "https://your-app.lovable.app,https://app.dibs.financial".
+ */
+export function allowedOrigins(): string[] | "*" {
+  const raw = Deno.env.get("DIBS_CORS_ORIGINS")?.trim();
+  if (!raw) return "*";
+  return raw.split(",").map((o) => o.trim().replace(/\/+$/, "")).filter(Boolean);
+}
+
+export function corsHeadersFor(req: Request): Record<string, string> {
+  const headers: Record<string, string> = {
+    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+    "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
+  };
+  const allowed = allowedOrigins();
+  if (allowed === "*") {
+    headers["Access-Control-Allow-Origin"] = "*";
+    return headers;
+  }
+  const origin = req.headers.get("Origin")?.replace(/\/+$/, "");
+  headers["Vary"] = "Origin";
+  if (origin && allowed.includes(origin)) {
+    headers["Access-Control-Allow-Origin"] = origin;
+  }
+  return headers;
+}
+
+export function withCors(req: Request, response: Response): Response {
+  for (const [name, value] of Object.entries(corsHeadersFor(req))) {
+    response.headers.set(name, value);
+  }
+  return response;
+}
 
 export function fail(
   status: number,
@@ -16,11 +46,11 @@ export function fail(
   message: string,
   extra: Record<string, unknown> = {},
 ): Response {
-  return Response.json({ success: false, error: code, message, ...extra }, { status, headers: corsHeaders });
+  return Response.json({ success: false, error: code, message, ...extra }, { status });
 }
 
 export function ok(body: Record<string, unknown>, status = 200): Response {
-  return Response.json({ success: true, ...body }, { status, headers: corsHeaders });
+  return Response.json({ success: true, ...body }, { status });
 }
 
 export async function parseJsonBody(req: Request): Promise<Record<string, unknown>> {
@@ -149,20 +179,20 @@ export function serveFunction(
 ): void {
   Deno.serve(async (req: Request) => {
     if (req.method === "OPTIONS") {
-      return new Response("ok", { headers: corsHeaders });
+      return withCors(req, new Response("ok"));
     }
     try {
       const db = serviceClient();
       const caller = await requireCaller(req, db, { requireRole: options.requireRole });
       const body = options.parseBody === false ? {} : await parseJsonBody(req);
-      return await handler({ db, req, body, caller });
+      return withCors(req, await handler({ db, req, body, caller }));
     } catch (error) {
       if (error instanceof HttpError) {
-        return fail(error.status, error.code, error.message, error.extra);
+        return withCors(req, fail(error.status, error.code, error.message, error.extra));
       }
+      // Log the real cause; never return it to the client (see SECURITY.md).
       console.error(error);
-      const message = error instanceof Error ? error.message : "Unexpected error.";
-      return fail(500, "SYSTEM_ERROR", message);
+      return withCors(req, fail(500, "SYSTEM_ERROR", "Unexpected error."));
     }
   });
 }

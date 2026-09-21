@@ -25,13 +25,18 @@ import { optionalPastTimestamp, optionalString, requireEnum, requireString } fro
  *   commitment_type  required, one of COMMITMENT_TYPES
  *   committed_at     optional ISO timestamp of the actual commitment (default
  *                    now). Pass it so the clock starts at the commitment, not
- *                    at the next monitor run.
+ *                    at the next monitor run. A value more than 15 days old is
+ *                    rejected (TIMESTAMP_TOO_OLD) unless acknowledge_late: true
+ *                    is sent; the filing is then created already OVERDUE.
  *   subscription_id, investor_id  optional, recorded in the ledger event.
  */
 serveFunction(async ({ db, body }) => {
   const spv_id = requireString(body, "spv_id");
   const commitment_type = requireEnum(body, "commitment_type", COMMITMENT_TYPES);
-  const committedAt = optionalPastTimestamp(body, "committed_at") ?? new Date();
+  const committedAt = optionalPastTimestamp(body, "committed_at", {
+    maxAgeDays: FORM_D_FILING_WINDOW_DAYS,
+    overrideKey: "acknowledge_late",
+  }) ?? new Date();
   const subscription_id = optionalString(body, "subscription_id");
   const investor_id = optionalString(body, "investor_id");
 

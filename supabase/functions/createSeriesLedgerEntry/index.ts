@@ -1,7 +1,7 @@
-import { LEDGER_HASH_PREIMAGE } from "../../../schemas/constants.ts";
+import { LEDGER_EVENT_TYPES, LEDGER_HASH_PREIMAGE } from "../../../schemas/constants.ts";
 import { ok, serveFunction } from "../_shared/http.ts";
 import { appendLedgerEntry } from "../_shared/ledger.ts";
-import { optionalObject, optionalString, requireString } from "../_shared/validate.ts";
+import { optionalObject, optionalString, requireEnum, requireString } from "../_shared/validate.ts";
 
 /**
  * Hash-Chained Series Registry Append
@@ -21,7 +21,7 @@ import { optionalObject, optionalString, requireString } from "../_shared/valida
  */
 serveFunction(async ({ db, body, caller }) => {
   const spv_id = requireString(body, "spv_id");
-  const event_type = requireString(body, "event_type");
+  const event_type = requireEnum(body, "event_type", LEDGER_EVENT_TYPES);
   const event_data = optionalObject(body, "event_data");
 
   // Human callers cannot label the event: actor and actor_role are taken from

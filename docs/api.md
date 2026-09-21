@@ -11,13 +11,13 @@ Every request carries two headers:
 | `Authorization` | `Bearer <token>` where token is a signed-in user's Supabase JWT, or the service-role key for server-to-server calls |
 | `apikey` | the project's anon key |
 
-A user JWT must belong to a user with a row in `public.user_roles` whose role is in `DIBS_FUNCTION_ALLOWED_ROLES` (default `admin`). The service-role key always passes. `factoryInfo` accepts any signed-in user. From a Lovable frontend, `supabase.functions.invoke(name, { body })` sets both headers automatically.
+A user JWT must belong to a user with a row in `public.user_roles` whose role is in `DIBS_FUNCTION_ALLOWED_ROLES` (default `admin`). The service-role key always passes. `factoryInfo` accepts any signed-in user. From a Lovable frontend, `supabase.functions.invoke(name, { body })` sets both headers automatically. Browser calls must come from an origin listed in `DIBS_CORS_ORIGINS` (unset allows any origin).
 
 All bodies are JSON objects. All responses are JSON with `success` (boolean) and, on failure, `error` (code) and `message`.
 
 | Status | Meaning |
 |---|---|
-| 400 | validation error (`MISSING_REQUIRED_FIELDS`, `INVALID_<FIELD>`, `INVALID_JSON`, …) |
+| 400 | validation error (`MISSING_REQUIRED_FIELDS`, `INVALID_<FIELD>`, `INVALID_JSON`, `TIMESTAMP_TOO_OLD`, …) |
 | 401 | `UNAUTHENTICATED` — missing or invalid token |
 | 403 | `FORBIDDEN` — user lacks an allowed role |
 | 409 | `LEDGER_CONTENTION` — retry the ledger append |
@@ -84,7 +84,7 @@ Response: `calls_created`, `calls_skipped`, `calls_failed`, `total_called`, `cal
 ### `POST /triggerFirstSaleClock`
 Records a commitment milestone. Only `IRREVOCABLE_COMMITMENT` starts the Form D clock.
 
-Body: `spv_id`, `commitment_type` (`IRREVOCABLE_COMMITMENT | SOFT_CIRCLE | SUBSCRIPTION_SIGNED | FUNDS_RECEIVED | FUNDS_CLEARED`) required; `committed_at` (ISO timestamp, not in the future, default now), `subscription_id`, `investor_id` optional.
+Body: `spv_id`, `commitment_type` (`IRREVOCABLE_COMMITMENT | SOFT_CIRCLE | SUBSCRIPTION_SIGNED | FUNDS_RECEIVED | FUNDS_CLEARED`) required; `committed_at` (ISO timestamp, not in the future, default now), `acknowledge_late` (boolean; required when `committed_at` is more than 15 days old, otherwise 400 `TIMESTAMP_TOO_OLD`), `subscription_id`, `investor_id` optional. A late-acknowledged first sale whose window has closed is created with status `OVERDUE`.
 
 Response: `form_d_filing_id`, `commitment_type`, `recorded_at`, `clock_started`, `clock_running`, `first_sale_date`, `filing_deadline`, `days_remaining`, `ledger`, `message`. Soft circles, signed subscriptions and bank receipts never start the clock; the clock is never restarted.
 

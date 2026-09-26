@@ -60,7 +60,7 @@ The per-deal fee schedule is the `fee_schedule` JSON column on `deal_configurati
 }
 ```
 
-The `dibs-billing` runner (daily) watches `SERIES_CREATED`, `KYC_PASS`, `FORM_D_FILED` and `BLUE_SKY_FILED`, the administration anniversary, late Form D filings, manual SS-4 filings and registered-series conversions, and writes one `billing_events` row per charge with a unique `source_ref` so it never double bills. PENDING rows are exported through the `billing_invoice_feed` view to Stripe or any invoicing tool. Audit packages are billed by `verifySeriesLedger` when requested (`audit_package: true`), and only for a chain that verifies. See `workflows/README.md`.
+The `dibs-billing` runner (daily) watches `SERIES_CREATED`, `KYC_PASS`, `FORM_D_FILED` and `BLUE_SKY_FILED`, the administration anniversary, late Form D filings, manual SS-4 filings and registered-series conversions, and writes one `billing_events` row per charge with a unique `source_ref` so it never double bills. PENDING rows are exported through the `billing_invoice_feed` view to Stripe or any invoicing tool. Platform licenses live in `platform_licenses`, one row per operator; each series run under a license points to it through `deal_configurations.platform_license_id`. The runner bills the annual fee as each license year starts and 2,000 for every series beyond the 25 included that was active in that year. The database enforces the decisions below: a license can only be signed at the published price, and its price and 24-month lock date cannot change until the lock ends. Audit packages are billed by `verifySeriesLedger` when requested (`audit_package: true`), and only for a chain that verifies. See `workflows/README.md`.
 
 ## Decisions
 

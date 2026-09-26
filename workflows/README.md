@@ -84,7 +84,7 @@ The runner observes; it never creates series, EINs, bank accounts, documents, or
 | Check | Action |
 |---|---|
 | Capital call ISSUED/PENDING past `due_date` | `wire_status` → OVERDUE, `STATE_CHANGE` ledger event, WARNING `WIRE_FAILURE` |
-| `KYC_FAIL` ledger event with no later `KYC_PASS` | WARNING `KYC_EXCEPTION` escalated to compliance review |
+| `KYC_FAIL` ledger event with no later `KYC_PASS` for the same `investor_id` | WARNING `KYC_EXCEPTION` escalated to compliance review |
 | `funds_received_at` set but no `irrevocable_commitment_at` | WARNING `ESCALATION`: bank receipt is never inferred to be a first sale; a human must call `triggerFirstSaleClock` with the real `committed_at` |
 | OFAC, KYC sessions | deal-model tables / connectors not in this repo; reported under `skipped` |
 
@@ -93,15 +93,15 @@ Turns recorded facts into `billing_events` rows (migration `20260921020000_billi
 
 | Charge | Source | Idempotency key |
 |---|---|---|
-| FORMATION or RUSH_FORMATION | `SERIES_CREATED` ledger event | `ledger:<entry id>` |
-| ONBOARDING | `KYC_PASS` ledger event, per investor | `ledger:<entry id>` |
+| FORMATION or RUSH_FORMATION | first `SERIES_CREATED` ledger event per SPV | `ledger:<entry id>` |
+| ONBOARDING | first `KYC_PASS` per `event_data.investor_id` (a re-verification is not billed again); every `KYC_PASS` without an investor_id | `ledger:<entry id>` |
 | FORM_D | `FORM_D_FILED` ledger event | `ledger:<entry id>` |
 | BLUE_SKY | `BLUE_SKY_FILED` ledger event | `ledger:<entry id>` |
 | ADMINISTRATION | year 0 at formation, each anniversary that has arrived, none after `WIND_DOWN` | `admin:<spv>:<year n>` |
 | LATE_FILING_REMEDIATION | `FORM_D_FILED` after a `STATE_CHANGE` to OVERDUE | `late:<filed event id>` |
 | EIN_MANUAL_FILING | `ein_requests` ISSUED with a non-ONLINE submission channel | `ein_manual:<request id>` |
 
-`source_ref` is unique, so re-running never double charges. New rows are PENDING; the view `billing_invoice_feed` is the export for Stripe or any invoicing tool. Marking rows INVOICED or PAID is done by that integration or by hand; the runner never does it and never writes the ledger. REGISTERED_SERIES_CONVERSION and AUDIT_PACKAGE are raised by hand.
+The runner reads the whole billable ledger history on every run, paging past PostgREST's 1,000-row cap, so a formation event keeps earning anniversary fees however old it is and a missed run is caught up on the next. `source_ref` is unique, so re-running never double charges. New rows are PENDING; the view `billing_invoice_feed` is the export for Stripe or any invoicing tool. Marking rows INVOICED or PAID is done by that integration or by hand; the runner never does it and never writes the ledger. REGISTERED_SERIES_CONVERSION and AUDIT_PACKAGE are raised by hand.
 
 ## Guardrails common to all runners
 - Only an irrevocable commitment starts the Form D clock; runners never call `triggerFirstSaleClock`.

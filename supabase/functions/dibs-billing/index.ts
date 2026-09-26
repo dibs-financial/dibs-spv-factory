@@ -10,12 +10,13 @@ import {
   administrationCharges,
   type Charge,
   chargeForLedgerEvent,
+  dedupeBillableEvents,
   einManualFilingCharge,
   lateFilingCharge,
   type ResolvedFeeSchedule,
   resolveFeeSchedule,
 } from "../_shared/billing.ts";
-import { isUniqueViolation, unwrap } from "../_shared/records.ts";
+import { isUniqueViolation, selectAll, unwrap } from "../_shared/records.ts";
 import { serveRunner } from "../_shared/runner.ts";
 
 /**
@@ -33,9 +34,16 @@ import { serveRunner } from "../_shared/runner.ts";
  * the same ref is treated as already billed. PENDING rows are the invoice
  * feed (view billing_invoice_feed); this runner never marks anything
  * invoiced or paid, and never touches the ledger.
+ *
+ * The whole billable history is read on every run, paging through PostgREST's
+ * row limit: a formation event must stay visible for as long as its series
+ * earns anniversary fees, and a late run must still catch every event since
+ * the last one. A repeat SERIES_CREATED for an SPV, or a repeat KYC_PASS for
+ * an investor, is not billed again (dedupeBillableEvents).
  */
 const BILLABLE_EVENTS = ["SERIES_CREATED", "KYC_PASS", "FORM_D_FILED", "BLUE_SKY_FILED"] as const;
-const LEDGER_SCAN_LIMIT = 5000;
+/** Refs per existence lookup; keeps the PostgREST GET URL well under proxy limits. */
+const REF_LOOKUP_CHUNK = 100;
 
 serveRunner("dibs-billing", async ({ db, now }) => {
   const summary = {
@@ -47,27 +55,30 @@ serveRunner("dibs-billing", async ({ db, now }) => {
     default_tier_spvs: [] as string[],
   };
 
-  const events = unwrap(
-    await db.from("series_registry_log").select("*").in("event_type", [
+  const events = await selectAll<LedgerRow>((from, to) =>
+    db.from("series_registry_log").select("*").in("event_type", [
       ...BILLABLE_EVENTS,
       "WIND_DOWN",
       "STATE_CHANGE",
-    ]).order("created_at", { ascending: false }).limit(LEDGER_SCAN_LIMIT),
-  ) as LedgerRow[];
+    ]).order("created_at", { ascending: true }).order("id", { ascending: true }).range(from, to)
+  );
   const bySpv = new Map<string, LedgerRow[]>();
+  const seenIds = new Set<string>();
   for (const e of events) {
+    if (seenIds.has(e.id)) continue;
+    seenIds.add(e.id);
     const list = bySpv.get(e.spv_id) ?? [];
     list.push(e);
     bySpv.set(e.spv_id, list);
   }
 
-  const einRequests = unwrap(
-    await db.from("ein_requests").select("*").eq("status", "ISSUED").neq("submission_channel", "ONLINE").not(
+  const einRequests = await selectAll<EINRequestRow>((from, to) =>
+    db.from("ein_requests").select("*").eq("status", "ISSUED").neq("submission_channel", "ONLINE").not(
       "submission_channel",
       "is",
       null,
-    ),
-  ) as EINRequestRow[];
+    ).order("id", { ascending: true }).range(from, to)
+  );
   for (const r of einRequests) if (!bySpv.has(r.spv_id)) bySpv.set(r.spv_id, []);
 
   const schedules = await loadSchedules(db, [...bySpv.keys()]);
@@ -80,7 +91,7 @@ serveRunner("dibs-billing", async ({ db, now }) => {
     const dealId = schedules.get(spvId)?.dealId ?? null;
 
     const charges: Charge[] = [];
-    for (const e of spvEvents) {
+    for (const e of dedupeBillableEvents(spvEvents)) {
       const c = chargeForLedgerEvent(e, s);
       if (c) charges.push(c);
     }
@@ -89,7 +100,9 @@ serveRunner("dibs-billing", async ({ db, now }) => {
       e.event_type === "SERIES_CREATED"
     ).sort((a, b) => a.sequence - b.sequence)[0];
     if (formation) {
-      const windDown = spvEvents.find((e) => e.event_type === "WIND_DOWN")?.event_timestamp ?? null;
+      const windDown = spvEvents.filter((e) => e.event_type === "WIND_DOWN").sort((a, b) =>
+        a.sequence - b.sequence
+      )[0]?.event_timestamp ?? null;
       charges.push(...administrationCharges(spvId, formation.event_timestamp, now, s, windDown));
     }
 
@@ -144,9 +157,9 @@ async function loadSchedules(
 
 async function existingRefs(db: SupabaseClient, refs: string[]): Promise<Set<string>> {
   const found = new Set<string>();
-  for (let i = 0; i < refs.length; i += 200) {
+  for (let i = 0; i < refs.length; i += REF_LOOKUP_CHUNK) {
     const rows = unwrap(
-      await db.from("billing_events").select("source_ref").in("source_ref", refs.slice(i, i + 200)),
+      await db.from("billing_events").select("source_ref").in("source_ref", refs.slice(i, i + REF_LOOKUP_CHUNK)),
     ) as Pick<BillingEventRow, "source_ref">[];
     for (const r of rows) found.add(r.source_ref);
   }

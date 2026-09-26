@@ -122,6 +122,34 @@ export function chargeForLedgerEvent(
 }
 
 /**
+ * Drops ledger events that would bill the same thing twice, keeping the
+ * earliest by sequence: a second SERIES_CREATED for an SPV, and a repeat
+ * KYC_PASS for an investor already onboarded (re-verification is not a new
+ * onboarding). KYC_PASS without an investor_id cannot be matched and is kept.
+ * The kept event is always the earliest, so its ledger:<id> key is stable
+ * across runs. Other event types pass through untouched.
+ */
+export function dedupeBillableEvents<
+  E extends Pick<LedgerRow, "id" | "spv_id" | "event_type" | "event_data" | "sequence">,
+>(events: E[]): E[] {
+  const seen = new Set<string>();
+  const out: E[] = [];
+  for (const e of [...events].sort((a, b) => a.sequence - b.sequence)) {
+    let key: string | null = null;
+    if (e.event_type === "SERIES_CREATED") key = `formation:${e.spv_id}`;
+    if (e.event_type === "KYC_PASS" && typeof e.event_data.investor_id === "string") {
+      key = `onboarding:${e.spv_id}:${e.event_data.investor_id}`;
+    }
+    if (key) {
+      if (seen.has(key)) continue;
+      seen.add(key);
+    }
+    out.push(e);
+  }
+  return out;
+}
+
+/**
  * Administration is billed per series per year from the formation event:
  * year 0 at formation, year n on each anniversary that has arrived, and
  * nothing after a WIND_DOWN. Idempotency key is admin:<spv>:<n>.

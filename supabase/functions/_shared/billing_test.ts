@@ -1,8 +1,10 @@
 import { assertEquals } from "jsr:@std/assert@1";
+import type { LedgerEventType } from "../../../schemas/constants.ts";
 import { DEFAULT_FEE_SCHEDULES } from "../../../schemas/pricing.ts";
 import {
   administrationCharges,
   chargeForLedgerEvent,
+  dedupeBillableEvents,
   einManualFilingCharge,
   lateFilingCharge,
   resolveFeeSchedule,
@@ -101,4 +103,28 @@ Deno.test("einManualFilingCharge only for issued, off-line submissions", () => {
   assertEquals(einManualFilingCharge({ ...base, submission_channel: "ONLINE" }, sponsor), null);
   assertEquals(einManualFilingCharge({ ...base, submission_channel: null }, sponsor), null);
   assertEquals(einManualFilingCharge({ ...base, status: "PENDING" }, sponsor), null);
+});
+
+Deno.test("dedupeBillableEvents: one formation per SPV, one onboarding per investor, earliest kept", () => {
+  const ev = (id: string, spv_id: string, sequence: number, event_type: LedgerEventType, event_data = {}) => ({
+    id,
+    spv_id,
+    sequence,
+    event_type,
+    event_data,
+  });
+  const kept = dedupeBillableEvents([
+    ev("k3", "a", 5, "KYC_PASS", { investor_id: "inv_1" }),
+    ev("s2", "a", 4, "SERIES_CREATED"),
+    ev("s1", "a", 1, "SERIES_CREATED"),
+    ev("k1", "a", 2, "KYC_PASS", { investor_id: "inv_1" }),
+    ev("k2", "a", 3, "KYC_PASS", { investor_id: "inv_2" }),
+    ev("n1", "a", 6, "KYC_PASS"),
+    ev("n2", "a", 7, "KYC_PASS"),
+    ev("b1", "b", 1, "SERIES_CREATED"),
+    ev("k4", "b", 2, "KYC_PASS", { investor_id: "inv_1" }),
+    ev("f1", "a", 8, "FORM_D_FILED"),
+    ev("f2", "a", 9, "FORM_D_FILED"),
+  ]);
+  assertEquals(kept.map((e) => e.id).sort(), ["b1", "f1", "f2", "k1", "k2", "k4", "n1", "n2", "s1"]);
 });

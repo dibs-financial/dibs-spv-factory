@@ -1,5 +1,5 @@
 import { assertEquals } from "jsr:@std/assert@1";
-import { compareNewestFirst, escalationState, type LedgerRow, nextSequence } from "./ledger.ts";
+import { compareNewestFirst, escalationState, latestKycOutcomes, type LedgerRow, nextSequence } from "./ledger.ts";
 
 function entry(over: Partial<LedgerRow>): LedgerRow {
   return {
@@ -52,4 +52,24 @@ Deno.test("escalationState: later resolution clears, later escalation re-blocks"
   assertEquals(escalationState([esc1, res1]).active, false);
   const esc2 = entry({ event_type: "ESCALATION", sequence: 3 });
   assertEquals(escalationState([res1, esc2, esc1]).active, true);
+});
+
+Deno.test("latestKycOutcomes keeps the latest result per investor, not per SPV", () => {
+  const ev = (spv_id: string, sequence: number, event_type: string, investor_id?: string) => ({
+    spv_id,
+    sequence,
+    event_type,
+    event_data: investor_id ? { investor_id } : {},
+  });
+  const out = latestKycOutcomes([
+    ev("a", 1, "KYC_FAIL", "inv_1"),
+    ev("a", 2, "KYC_PASS", "inv_2"),
+    ev("a", 3, "KYC_FAIL", "inv_2"),
+    ev("a", 4, "KYC_PASS", "inv_2"),
+    ev("b", 1, "KYC_PASS", "inv_1"),
+    ev("b", 2, "KYC_FAIL"),
+  ]);
+  const fails = out.filter((e) => e.event_type === "KYC_FAIL").map((e) => `${e.spv_id}:${e.sequence}`).sort();
+  assertEquals(fails, ["a:1", "b:2"]);
+  assertEquals(out.length, 4);
 });

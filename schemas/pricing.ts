@@ -75,5 +75,9 @@ export const FORM_D_BUNDLED_IN_FORMATION = false;
 /** Administration is billed per series, never per master; series count drives the compliance work. */
 export const ADMIN_FEE_BASIS = "PER_SERIES" as const;
 
-/** Minimum AVAILABLE signatories before the 72-hour track may be offered. */
+/**
+ * Minimum AVAILABLE signatories before the 72-hour track may be offered.
+ * Enforced by the deal_configurations_rush_track_gate trigger
+ * (migration 20260926010000_rush_track_gate.sql); keep the two in sync.
+ */
 export const RUSH_TRACK_MIN_AVAILABLE_SIGNATORIES = 3;

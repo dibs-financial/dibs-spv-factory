@@ -34,3 +34,25 @@ export function isUniqueViolation(error: unknown): boolean {
   return (error instanceof DatabaseError && error.code === "23505") ||
     (isPlainObject(error) && error.code === "23505");
 }
+
+/** PostgREST's default max-rows; a single select never returns more than this. */
+export const PAGE_SIZE = 1000;
+
+/**
+ * Every row a query matches, paging through PostgREST's row limit. `page`
+ * must build a fresh, stably ordered query for the given inclusive range.
+ * Rows inserted concurrently can shift a page boundary and be returned twice
+ * but never skipped, so callers that need uniqueness should dedupe.
+ */
+export async function selectAll<T>(
+  page: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: PostgrestError | null }>,
+  pageSize = PAGE_SIZE,
+): Promise<T[]> {
+  const all: T[] = [];
+  for (let from = 0;; from += pageSize) {
+    const rows = unwrap(await page(from, from + pageSize - 1)) ?? [];
+    all.push(...rows);
+    if (rows.length < pageSize) break;
+  }
+  return all;
+}

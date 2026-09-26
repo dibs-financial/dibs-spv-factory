@@ -1,10 +1,14 @@
 import { assertEquals } from "jsr:@std/assert@1";
+import type { LedgerEventType } from "../../../schemas/constants.ts";
 import { DEFAULT_FEE_SCHEDULES } from "../../../schemas/pricing.ts";
 import {
   administrationCharges,
+  auditPackageCharge,
   chargeForLedgerEvent,
+  dedupeBillableEvents,
   einManualFilingCharge,
   lateFilingCharge,
+  registeredConversionCharge,
   resolveFeeSchedule,
 } from "./billing.ts";
 
@@ -101,4 +105,58 @@ Deno.test("einManualFilingCharge only for issued, off-line submissions", () => {
   assertEquals(einManualFilingCharge({ ...base, submission_channel: "ONLINE" }, sponsor), null);
   assertEquals(einManualFilingCharge({ ...base, submission_channel: null }, sponsor), null);
   assertEquals(einManualFilingCharge({ ...base, status: "PENDING" }, sponsor), null);
+});
+
+Deno.test("dedupeBillableEvents: one formation per SPV, one onboarding per investor, earliest kept", () => {
+  const ev = (id: string, spv_id: string, sequence: number, event_type: LedgerEventType, event_data = {}) => ({
+    id,
+    spv_id,
+    sequence,
+    event_type,
+    event_data,
+  });
+  const kept = dedupeBillableEvents([
+    ev("k3", "a", 5, "KYC_PASS", { investor_id: "inv_1" }),
+    ev("s2", "a", 4, "SERIES_CREATED"),
+    ev("s1", "a", 1, "SERIES_CREATED"),
+    ev("k1", "a", 2, "KYC_PASS", { investor_id: "inv_1" }),
+    ev("k2", "a", 3, "KYC_PASS", { investor_id: "inv_2" }),
+    ev("n1", "a", 6, "KYC_PASS"),
+    ev("n2", "a", 7, "KYC_PASS"),
+    ev("b1", "b", 1, "SERIES_CREATED"),
+    ev("k4", "b", 2, "KYC_PASS", { investor_id: "inv_1" }),
+    ev("f1", "a", 8, "FORM_D_FILED"),
+    ev("f2", "a", 9, "FORM_D_FILED"),
+  ]);
+  assertEquals(kept.map((e) => e.id).sort(), ["b1", "f1", "f2", "k1", "k2", "k4", "n1", "n2", "s1"]);
+});
+
+Deno.test("registeredConversionCharge: once per REGISTERED SPV, never for PROTECTED", () => {
+  const config = { spv_id: "spv", series_type: "REGISTERED", updated_at: "2026-05-01T00:00:00.000Z" };
+  const c = registeredConversionCharge(config, sponsor);
+  assertEquals(c?.charge_type, "REGISTERED_SERIES_CONVERSION");
+  assertEquals(c?.amount, 2500);
+  assertEquals(c?.source_ref, "registered:spv");
+  assertEquals(c?.occurred_at, "2026-05-01T00:00:00.000Z");
+  assertEquals(registeredConversionCharge({ ...config, series_type: "PROTECTED" }, sponsor), null);
+  assertEquals(registeredConversionCharge(config, { ...sponsor, registered_series_conversion_fee: 0 }), null);
+});
+
+Deno.test("auditPackageCharge: verified chain only, keyed on the ledger head, free on PLATFORM", () => {
+  const pkg = {
+    spv_id: "spv",
+    valid: true,
+    head_entry_id: "e9",
+    head_sequence: 9,
+    requested_at: "2026-06-01T00:00:00.000Z",
+  };
+  const c = auditPackageCharge(pkg, sponsor);
+  assertEquals(c?.charge_type, "AUDIT_PACKAGE");
+  assertEquals(c?.amount, 750);
+  assertEquals(c?.source_ref, "audit:spv:9");
+  assertEquals(c?.source_event_id, "e9");
+  assertEquals(auditPackageCharge(pkg, DEFAULT_FEE_SCHEDULES.FUND)?.amount, 500);
+  assertEquals(auditPackageCharge(pkg, DEFAULT_FEE_SCHEDULES.PLATFORM), null);
+  assertEquals(auditPackageCharge({ ...pkg, valid: false }, sponsor), null);
+  assertEquals(auditPackageCharge({ ...pkg, head_entry_id: null, head_sequence: 0 }, sponsor), null);
 });

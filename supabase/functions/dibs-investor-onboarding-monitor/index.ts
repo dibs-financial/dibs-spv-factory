@@ -1,7 +1,7 @@
 import type { CapitalCallRow, FormDFilingRow } from "../../../schemas/types.ts";
 import { raiseAlert } from "../_shared/alerts.ts";
-import { appendLedgerEntry, type LedgerRow } from "../_shared/ledger.ts";
-import { unwrap } from "../_shared/records.ts";
+import { appendLedgerEntry, latestKycOutcomes, type LedgerRow } from "../_shared/ledger.ts";
+import { selectAll, unwrap } from "../_shared/records.ts";
 import { DEAL_MODEL_SKIPS, serveRunner } from "../_shared/runner.ts";
 
 /**
@@ -9,7 +9,7 @@ import { DEAL_MODEL_SKIPS, serveRunner } from "../_shared/runner.ts";
  *
  *   - capital calls ISSUED / PENDING past due_date → wire_status OVERDUE,
  *     STATE_CHANGE ledger event, WARNING WIRE_FAILURE alert
- *   - KYC_FAIL ledger events with no later KYC_PASS for the SPV → WARNING
+ *   - KYC_FAIL ledger events with no later KYC_PASS for the same investor → WARNING
  *     KYC_EXCEPTION alert (human review; the pipeline will not advance)
  *   - funds received on a filing with no irrevocable commitment recorded →
  *     WARNING ESCALATION. Bank receipt is never inferred to be a first sale;
@@ -73,18 +73,14 @@ serveRunner("dibs-investor-onboarding-monitor", async ({ db, now }) => {
   }
 
   // KYC failures without a later pass
-  const kycEvents = unwrap(
-    await db.from("series_registry_log").select("*").in("event_type", ["KYC_PASS", "KYC_FAIL"]).order("sequence", {
-      ascending: false,
-    }),
-  ) as LedgerRow[];
-  const latestBySpv = new Map<string, LedgerRow>();
-  for (const e of kycEvents) if (!latestBySpv.has(e.spv_id)) latestBySpv.set(e.spv_id, e);
-  for (const [spv_id, latest] of latestBySpv) {
+  const kycEvents = await selectAll<LedgerRow>((from, to) =>
+    db.from("series_registry_log").select("*").in("event_type", ["KYC_PASS", "KYC_FAIL"]).order("id").range(from, to)
+  );
+  for (const latest of latestKycOutcomes(kycEvents)) {
     if (latest.event_type !== "KYC_FAIL") continue;
     summary.kyc_exceptions += 1;
     await raise({
-      spv_id,
+      spv_id: latest.spv_id,
       alert_type: "KYC_EXCEPTION",
       severity: "WARNING",
       covenant_type: "KYC_AML",

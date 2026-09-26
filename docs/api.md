@@ -30,7 +30,9 @@ All bodies are JSON objects. All responses are JSON with `success` (boolean) and
 ### `GET /factoryInfo`
 Configuration and health. Any signed-in user.
 
-Response: `factory`, `version`, `platform`, `base_url`, `tenant_id`, `env`, `allowed_roles`, `caller { is_service, roles }`, `functions[] { name, method, url }`, `form_d_window_days`, `ledger_hash_preimage`.
+Response: `factory`, `version`, `platform`, `base_url`, `tenant_id`, `env`, `allowed_roles`, `caller { is_service, roles }`, `functions[] { name, method, url }`, `form_d_window_days`, `ledger_hash_preimage`, `rush_track { available, min_available_signatories }`.
+
+`rush_track.available` is whether the 72-hour track may be offered right now (at least 3 EIN signatories available on the IRS Eastern day); hide the option when it is `false`. It is `null` if the check could not run. Only the yes/no is reported, never the pool size.
 
 ### `GET /checkMasterEntityLiabilityNotice`
 Statutory kill-switch. Resolves the single ACTIVE master Delaware Series LLC.

@@ -40,7 +40,7 @@ A first-year Sponsor SPV with 20 investors costs 7,800 before filings; on the Fu
 
 Gross margin per series should land near 70 percent at Sponsor and near 60 percent at Fund, with onboarding the thinnest line. Direct costs per series: registered agent share, bank sub-account provisioning, KYC checks at roughly 5 to 15 per investor, e-signature envelopes, and human review time on gate failures and escalations.
 
-The 72-hour track earns its premium only when the responsible-party pool has enough daily EIN capacity. Offer it only while at least three signatories are `AVAILABLE`.
+The 72-hour track earns its premium only when the responsible-party pool has enough daily EIN capacity. Offer it only while at least three signatories are `AVAILABLE`. The database enforces this: setting `fee_schedule.rush_track` to `true` on a deal is rejected with `RUSH_TRACK_UNAVAILABLE` while fewer than three signatories can sign on the current IRS day, and `factoryInfo` reports `rush_track.available` so the app can hide the option. Deals already on the rush track are not affected when the pool later shrinks.
 
 ## Where pricing lives in the product
 

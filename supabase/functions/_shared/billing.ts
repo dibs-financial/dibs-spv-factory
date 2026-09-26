@@ -236,3 +236,45 @@ function addYears(d: Date, years: number): Date {
 function isoDate(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
+
+/**
+ * A series whose deal_configurations.series_type is REGISTERED carries the
+ * conversion fee once (Delaware fees pass through at cost, billed apart).
+ * The charge is dated from the row's updated_at when the runner first sees it.
+ * Key: registered:<spv>, so it can never be billed twice for one SPV.
+ */
+export function registeredConversionCharge(
+  config: { spv_id: string; series_type: string; updated_at: string },
+  s: FeeSchedule,
+): Charge | null {
+  if (config.series_type !== "REGISTERED" || s.registered_series_conversion_fee <= 0) return null;
+  return charge(
+    "REGISTERED_SERIES_CONVERSION",
+    s.registered_series_conversion_fee,
+    "Registered-series conversion (Delaware fees at cost)",
+    `registered:${config.spv_id}`,
+    config.updated_at,
+  );
+}
+
+/**
+ * An audit evidence package requested through verifySeriesLedger. Billed only
+ * when the chain verifies: a package that shows the factory's own ledger is
+ * broken is the factory's problem, not the client's. The key is the ledger
+ * head, so asking again before anything new is appended is not a second
+ * package. Key: audit:<spv>:<head sequence>.
+ */
+export function auditPackageCharge(
+  pkg: { spv_id: string; valid: boolean; head_entry_id: string | null; head_sequence: number; requested_at: string },
+  s: FeeSchedule,
+): Charge | null {
+  if (!pkg.valid || pkg.head_sequence <= 0 || s.audit_package_fee <= 0) return null;
+  return charge(
+    "AUDIT_PACKAGE",
+    s.audit_package_fee,
+    `Audit evidence package (ledger through entry ${pkg.head_sequence})`,
+    `audit:${pkg.spv_id}:${pkg.head_sequence}`,
+    pkg.requested_at,
+    { source_event_id: pkg.head_entry_id },
+  );
+}

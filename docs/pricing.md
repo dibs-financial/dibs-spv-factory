@@ -18,7 +18,7 @@ Each stream is keyed to an event the factory already records, so invoicing can b
 | Regulatory filings | `FORM_D_FILED`, `BLUE_SKY_FILED` | 600 per Form D, always billed separately from formation; 300 per state notice; state fees at cost |
 | Late-filing remediation | `FORM_D_OVERDUE` alert resolved | 1,500 flat |
 | Registered-series conversion | `series_type` set to REGISTERED | 2,500 plus Delaware fees at cost |
-| Audit evidence package | `verifySeriesLedger` export on request | 750 per package; included in Platform tier |
+| Audit evidence package | `verifySeriesLedger` with `audit_package: true`, chain verified | 750 per package; included in Platform tier |
 | EIN manual filing | `EIN_PENDING_MANUAL` hold | 250 per paper SS-4 |
 | Platform license | White-label or API use of the engine under LICENSE-PROPRIETARY | 60,000 per year with 25 series included, 2,000 per additional series; one published price, no introductory discounts, 24-month price lock |
 
@@ -60,7 +60,7 @@ The per-deal fee schedule is the `fee_schedule` JSON column on `deal_configurati
 }
 ```
 
-The `dibs-billing` runner (daily) watches `SERIES_CREATED`, `KYC_PASS`, `FORM_D_FILED` and `BLUE_SKY_FILED`, the administration anniversary, late Form D filings and manual SS-4 filings, and writes one `billing_events` row per charge with a unique `source_ref` so it never double bills. PENDING rows are exported through the `billing_invoice_feed` view to Stripe or any invoicing tool. See `workflows/README.md`.
+The `dibs-billing` runner (daily) watches `SERIES_CREATED`, `KYC_PASS`, `FORM_D_FILED` and `BLUE_SKY_FILED`, the administration anniversary, late Form D filings, manual SS-4 filings and registered-series conversions, and writes one `billing_events` row per charge with a unique `source_ref` so it never double bills. PENDING rows are exported through the `billing_invoice_feed` view to Stripe or any invoicing tool. Audit packages are billed by `verifySeriesLedger` when requested (`audit_package: true`), and only for a chain that verifies. See `workflows/README.md`.
 
 ## Decisions
 

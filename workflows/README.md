@@ -100,8 +100,9 @@ Turns recorded facts into `billing_events` rows (migration `20260921020000_billi
 | ADMINISTRATION | year 0 at formation, each anniversary that has arrived, none after `WIND_DOWN` | `admin:<spv>:<year n>` |
 | LATE_FILING_REMEDIATION | `FORM_D_FILED` after a `STATE_CHANGE` to OVERDUE | `late:<filed event id>` |
 | EIN_MANUAL_FILING | `ein_requests` ISSUED with a non-ONLINE submission channel | `ein_manual:<request id>` |
+| REGISTERED_SERIES_CONVERSION | `deal_configurations.series_type` is REGISTERED, once per SPV, dated from the row's `updated_at` | `registered:<spv>` |
 
-The runner reads the whole billable ledger history on every run, paging past PostgREST's 1,000-row cap, so a formation event keeps earning anniversary fees however old it is and a missed run is caught up on the next. `source_ref` is unique, so re-running never double charges. New rows are PENDING; the view `billing_invoice_feed` is the export for Stripe or any invoicing tool. Marking rows INVOICED or PAID is done by that integration or by hand; the runner never does it and never writes the ledger. REGISTERED_SERIES_CONVERSION and AUDIT_PACKAGE are raised by hand.
+The runner reads the whole billable ledger history on every run, paging past PostgREST's 1,000-row cap, so a formation event keeps earning anniversary fees however old it is and a missed run is caught up on the next. `source_ref` is unique, so re-running never double charges. New rows are PENDING; the view `billing_invoice_feed` is the export for Stripe or any invoicing tool. Marking rows INVOICED or PAID is done by that integration or by hand; the runner never does it and never writes the ledger. AUDIT_PACKAGE is not raised here: `verifySeriesLedger` bills it when called with `audit_package: true` (see `docs/api.md`).
 
 ## Guardrails common to all runners
 - Only an irrevocable commitment starts the Form D clock; runners never call `triggerFirstSaleClock`.

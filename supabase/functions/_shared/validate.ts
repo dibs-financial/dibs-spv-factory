@@ -20,6 +20,15 @@ export function optionalString(body: Body, key: string): string | undefined {
   return value.trim() === "" ? undefined : value.trim();
 }
 
+export function optionalBoolean(body: Body, key: string): boolean | undefined {
+  const value = body[key];
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== "boolean") {
+    throw new HttpError(400, "INVALID_FIELD", `${key} must be true or false.`);
+  }
+  return value;
+}
+
 export function requireEnum<T extends readonly string[]>(body: Body, key: string, list: T): T[number] {
   const value = requireString(body, key);
   if (!(list as readonly string[]).includes(value)) {

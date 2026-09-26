@@ -3,10 +3,12 @@ import type { LedgerEventType } from "../../../schemas/constants.ts";
 import { DEFAULT_FEE_SCHEDULES } from "../../../schemas/pricing.ts";
 import {
   administrationCharges,
+  auditPackageCharge,
   chargeForLedgerEvent,
   dedupeBillableEvents,
   einManualFilingCharge,
   lateFilingCharge,
+  registeredConversionCharge,
   resolveFeeSchedule,
 } from "./billing.ts";
 
@@ -127,4 +129,34 @@ Deno.test("dedupeBillableEvents: one formation per SPV, one onboarding per inves
     ev("f2", "a", 9, "FORM_D_FILED"),
   ]);
   assertEquals(kept.map((e) => e.id).sort(), ["b1", "f1", "f2", "k1", "k2", "k4", "n1", "n2", "s1"]);
+});
+
+Deno.test("registeredConversionCharge: once per REGISTERED SPV, never for PROTECTED", () => {
+  const config = { spv_id: "spv", series_type: "REGISTERED", updated_at: "2026-05-01T00:00:00.000Z" };
+  const c = registeredConversionCharge(config, sponsor);
+  assertEquals(c?.charge_type, "REGISTERED_SERIES_CONVERSION");
+  assertEquals(c?.amount, 2500);
+  assertEquals(c?.source_ref, "registered:spv");
+  assertEquals(c?.occurred_at, "2026-05-01T00:00:00.000Z");
+  assertEquals(registeredConversionCharge({ ...config, series_type: "PROTECTED" }, sponsor), null);
+  assertEquals(registeredConversionCharge(config, { ...sponsor, registered_series_conversion_fee: 0 }), null);
+});
+
+Deno.test("auditPackageCharge: verified chain only, keyed on the ledger head, free on PLATFORM", () => {
+  const pkg = {
+    spv_id: "spv",
+    valid: true,
+    head_entry_id: "e9",
+    head_sequence: 9,
+    requested_at: "2026-06-01T00:00:00.000Z",
+  };
+  const c = auditPackageCharge(pkg, sponsor);
+  assertEquals(c?.charge_type, "AUDIT_PACKAGE");
+  assertEquals(c?.amount, 750);
+  assertEquals(c?.source_ref, "audit:spv:9");
+  assertEquals(c?.source_event_id, "e9");
+  assertEquals(auditPackageCharge(pkg, DEFAULT_FEE_SCHEDULES.FUND)?.amount, 500);
+  assertEquals(auditPackageCharge(pkg, DEFAULT_FEE_SCHEDULES.PLATFORM), null);
+  assertEquals(auditPackageCharge({ ...pkg, valid: false }, sponsor), null);
+  assertEquals(auditPackageCharge({ ...pkg, head_entry_id: null, head_sequence: 0 }, sponsor), null);
 });

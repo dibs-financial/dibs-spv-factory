@@ -88,7 +88,7 @@ serveFunction(async ({ db, body }) => {
         reason: !valid ? "chain did not verify" : !head ? "ledger is empty" : "audit package included in tier",
       };
     } else {
-      const inserted = await insertCharge(db, spv_id, dealId, schedule.tier, source, c);
+      const inserted = await insertCharge(db, { spv_id, deal_id: dealId }, schedule.tier, source, c);
       billing = !inserted
         ? { charged: false, reason: "package for this ledger head already billed", source_ref: c.source_ref }
         : { charged: true, source_ref: c.source_ref, amount: c.amount, currency: "USD" };

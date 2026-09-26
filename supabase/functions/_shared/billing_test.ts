@@ -1,6 +1,6 @@
 import { assertEquals } from "jsr:@std/assert@1";
 import type { LedgerEventType } from "../../../schemas/constants.ts";
-import { DEFAULT_FEE_SCHEDULES } from "../../../schemas/pricing.ts";
+import { DEFAULT_FEE_SCHEDULES, PLATFORM_LICENSE } from "../../../schemas/pricing.ts";
 import {
   administrationCharges,
   auditPackageCharge,
@@ -8,6 +8,7 @@ import {
   dedupeBillableEvents,
   einManualFilingCharge,
   lateFilingCharge,
+  platformLicenseCharges,
   registeredConversionCharge,
   resolveFeeSchedule,
 } from "./billing.ts";
@@ -159,4 +160,81 @@ Deno.test("auditPackageCharge: verified chain only, keyed on the ledger head, fr
   assertEquals(auditPackageCharge(pkg, DEFAULT_FEE_SCHEDULES.PLATFORM), null);
   assertEquals(auditPackageCharge({ ...pkg, valid: false }, sponsor), null);
   assertEquals(auditPackageCharge({ ...pkg, head_entry_id: null, head_sequence: 0 }, sponsor), null);
+});
+
+const license = {
+  id: "lic",
+  start_date: "2026-01-15",
+  end_date: null,
+  annual_fee: PLATFORM_LICENSE.annual_fee,
+  included_series: PLATFORM_LICENSE.included_series,
+  additional_series_fee: PLATFORM_LICENSE.additional_series_fee,
+};
+const formedSeries = (count: number, formedAt: (i: number) => string, wound: string | null = null) =>
+  Array.from({ length: count }, (_, i) => ({ spv_id: `s${i + 1}`, formed_at: formedAt(i), wound_down_at: wound }));
+
+Deno.test("platformLicenseCharges: annual fee per license year as each year starts", () => {
+  const year1 = platformLicenseCharges(license, [], new Date("2026-01-15T00:00:00.000Z"));
+  assertEquals(year1.map((c) => [c.source_ref, c.amount, c.period_start, c.period_end]), [
+    ["license:lic:0", 60000, "2026-01-15", "2027-01-14"],
+  ]);
+  assertEquals(year1[0].charge_type, "PLATFORM_LICENSE");
+  assertEquals(platformLicenseCharges(license, [], new Date("2026-01-14T23:59:59.000Z")), []);
+  const three = platformLicenseCharges(license, [], new Date("2028-06-01T00:00:00.000Z"));
+  assertEquals(three.map((c) => c.source_ref), ["license:lic:0", "license:lic:1", "license:lic:2"]);
+});
+
+Deno.test("platformLicenseCharges: no year starting on or after end_date", () => {
+  const ended = { ...license, end_date: "2027-01-15" };
+  assertEquals(
+    platformLicenseCharges(ended, [], new Date("2029-01-01T00:00:00.000Z")).map((c) => c.source_ref),
+    ["license:lic:0"],
+  );
+});
+
+Deno.test("platformLicenseCharges: 25 series included, one charge per series beyond", () => {
+  const now = new Date("2026-12-01T00:00:00.000Z");
+  const at25 = platformLicenseCharges(
+    license,
+    formedSeries(25, (i) => `2026-02-${String(i + 1).padStart(2, "0")}T00:00:00.000Z`),
+    now,
+  );
+  assertEquals(at25.filter((c) => c.charge_type === "PLATFORM_ADDITIONAL_SERIES"), []);
+  const at27 = platformLicenseCharges(
+    license,
+    formedSeries(27, (i) => new Date(Date.UTC(2026, 1, 1 + i)).toISOString()),
+    now,
+  ).filter((c) => c.charge_type === "PLATFORM_ADDITIONAL_SERIES");
+  assertEquals(at27.map((c) => [c.source_ref, c.amount]), [
+    ["license_series:lic:0:26", 2000],
+    ["license_series:lic:0:27", 2000],
+  ]);
+  // dated when the 26th series (by formation) was formed
+  assertEquals(at27[0].occurred_at, new Date(Date.UTC(2026, 1, 26)).toISOString());
+});
+
+Deno.test("platformLicenseCharges: a series counts in every year it is active, not after wind-down", () => {
+  const now = new Date("2027-06-01T00:00:00.000Z");
+  // 26 series formed in year 1; all wound down before year 2 starts
+  const woundEarly = formedSeries(26, () => "2026-03-01T00:00:00.000Z", "2026-12-31T00:00:00.000Z");
+  const refs = platformLicenseCharges(license, woundEarly, now).map((c) => c.source_ref);
+  assertEquals(refs, ["license:lic:0", "license_series:lic:0:26", "license:lic:1"]);
+  // still running in year 2 → the 26th series is billed again for year 2
+  const running = formedSeries(26, () => "2026-03-01T00:00:00.000Z");
+  const year2 = platformLicenseCharges(license, running, now).filter((c) => c.source_ref.startsWith("license_series"));
+  assertEquals(year2.map((c) => [c.source_ref, c.occurred_at]), [
+    ["license_series:lic:0:26", "2026-03-01T00:00:00.000Z"],
+    ["license_series:lic:1:26", "2027-01-15T00:00:00.000Z"],
+  ]);
+});
+
+Deno.test("platformLicenseCharges: series formed after the license ended do not count", () => {
+  const ended = { ...license, end_date: "2026-06-01" };
+  const series = [
+    ...formedSeries(25, () => "2026-02-01T00:00:00.000Z"),
+    { spv_id: "late", formed_at: "2026-07-01T00:00:00.000Z", wound_down_at: null },
+  ];
+  const extra = platformLicenseCharges(ended, series, new Date("2026-12-01T00:00:00.000Z"))
+    .filter((c) => c.charge_type === "PLATFORM_ADDITIONAL_SERIES");
+  assertEquals(extra, []);
 });

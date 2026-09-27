@@ -1,15 +1,11 @@
 /**
- * SAMPLE DATA for the operator console. Every value here is illustrative;
- * the top bar shows a "Sample data" badge while pages read from this file.
- * Replace with calls to the factory (supabase.functions.invoke or table reads
- * on spv_pipeline, alert_log, responsible_parties, billing_invoice_feed).
+ * SAMPLE DATA for the operator console's demo mode, used only when no
+ * Supabase project is configured (see src/integrations/supabase/client.ts).
+ * Every value is illustrative; the top bar shows a "Sample data" badge.
  * Stage codes, alert types and the signatory minimum are the real ones from
  * schemas/constants.ts and schemas/pricing.ts.
  */
-export type Tone = "success" | "info" | "warning" | "critical" | "neutral";
-
-export const PIPELINE_STAGE_COUNT = 14;
-export const RUSH_TRACK_MIN_AVAILABLE_SIGNATORIES = 3;
+import type { Tone } from "@/lib/factory";
 
 export const kpis = [
   { label: "Series in formation", value: "18", note: "6 on the 72-hour track", tone: "neutral" as Tone },

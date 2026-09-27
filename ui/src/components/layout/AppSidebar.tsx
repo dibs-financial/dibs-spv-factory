@@ -1,5 +1,5 @@
 import { NavLink } from "react-router-dom";
-import { Check, PanelLeftClose, PanelLeftOpen, Settings } from "lucide-react";
+import { Check, LogOut, PanelLeftClose, PanelLeftOpen, Settings } from "lucide-react";
 import { NAV_GROUPS, type NavItem } from "@/lib/navigation";
 import { cn } from "@/lib/utils";
 
@@ -20,8 +20,8 @@ function Logo({ collapsed }: { collapsed: boolean }) {
   );
 }
 
-function CountBadge({ item, collapsed }: { item: NavItem; collapsed: boolean }) {
-  if (item.count === undefined) return null;
+function CountBadge({ item, count, collapsed }: { item: NavItem; count: number | undefined; collapsed: boolean }) {
+  if (count === undefined || count === 0) return null;
   if (collapsed) {
     if (!item.urgent) return null;
     return (
@@ -39,7 +39,7 @@ function CountBadge({ item, collapsed }: { item: NavItem; collapsed: boolean }) 
         item.urgent ? "bg-critical text-white" : "bg-sidebar-border text-sidebar-foreground",
       )}
     >
-      {item.count}
+      {count}
     </span>
   );
 }
@@ -54,11 +54,16 @@ export function AppSidebar({
   onToggle,
   masterEntity,
   operator,
+  counts,
+  onSignOut,
 }: {
   collapsed: boolean;
   onToggle: () => void;
-  masterEntity: { name: string; noticeVerified: boolean };
+  masterEntity: { name: string; noticeVerified: boolean } | null;
   operator: { name: string; initials: string; role: string };
+  counts: Partial<Record<NonNullable<NavItem["countKey"]>, number>>;
+  /** Present when signed in to a live project. */
+  onSignOut?: () => void;
 }) {
   return (
     <nav
@@ -87,13 +92,15 @@ export function AppSidebar({
             {!collapsed && (
               <span className="px-3 pb-1.5 text-[11px] uppercase tracking-[0.12em] text-sidebar-muted">{group.label}</span>
             )}
-            {group.items.map((item) => (
+            {group.items.map((item) => {
+              const count = item.countKey ? counts[item.countKey] : undefined;
+              return (
               <NavLink
                 key={item.to}
                 to={item.to}
                 end={item.to === "/"}
                 title={collapsed ? item.label : undefined}
-                aria-label={item.count !== undefined ? `${item.label}, ${item.count}` : undefined}
+                aria-label={count ? `${item.label}, ${count}` : undefined}
                 className={({ isActive }) =>
                   cn(
                     "relative flex h-11 items-center gap-3 rounded-md px-3 text-sm transition-colors",
@@ -108,20 +115,21 @@ export function AppSidebar({
                   <>
                     <item.icon className="size-[18px] shrink-0" strokeWidth={1.6} aria-hidden="true" />
                     {!collapsed && <span className="grow truncate">{item.label}</span>}
-                    <CountBadge item={item} collapsed={collapsed} />
-                    {isActive && !collapsed && item.count === undefined && (
+                    <CountBadge item={item} count={count} collapsed={collapsed} />
+                    {isActive && !collapsed && !count && (
                       <span aria-hidden="true" className="size-1.5 shrink-0 rounded-full bg-brass" />
                     )}
                   </>
                 )}
               </NavLink>
-            ))}
+              );
+            })}
           </div>
         ))}
       </div>
 
       <div className="mt-auto flex flex-col gap-3">
-        {!collapsed && (
+        {!collapsed && masterEntity && (
           <div className="flex flex-col gap-2 rounded-md border border-sidebar-border p-3.5">
             <span className="text-[11px] uppercase tracking-[0.12em] text-sidebar-muted">Master entity</span>
             <span className="text-[13px] font-medium text-sidebar-primary">{masterEntity.name}</span>
@@ -155,6 +163,17 @@ export function AppSidebar({
               >
                 <Settings className="size-[18px]" strokeWidth={1.6} aria-hidden="true" />
               </NavLink>
+              {onSignOut && (
+                <button
+                  type="button"
+                  onClick={onSignOut}
+                  aria-label="Sign out"
+                  title="Sign out"
+                  className="flex size-9 items-center justify-center rounded-md text-sidebar-muted hover:bg-sidebar-hover hover:text-sidebar-foreground focus-visible:ring-sidebar-ring focus-visible:ring-offset-sidebar"
+                >
+                  <LogOut className="size-[18px]" strokeWidth={1.6} aria-hidden="true" />
+                </button>
+              )}
             </>
           )}
         </div>

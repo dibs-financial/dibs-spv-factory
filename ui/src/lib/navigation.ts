@@ -15,8 +15,8 @@ export interface NavItem {
   label: string;
   to: string;
   icon: LucideIcon;
-  /** Count shown beside the item; `urgent` counts are red and survive the collapsed rail. */
-  count?: number;
+  /** Which live count to show beside the item; `urgent` counts are red and survive the collapsed rail. */
+  countKey?: "pipeline" | "alerts" | "billing";
   urgent?: boolean;
 }
 
@@ -26,16 +26,15 @@ export interface NavGroup {
 }
 
 /**
- * The operator console's information architecture. Counts here are sample
- * values; wire them to the factory functions (alert_log, spv_pipeline,
- * billing_invoice_feed) when connecting real data.
+ * The operator console's information architecture. Counts come from
+ * useNavCounts (spv_pipeline, alert_log, billing_invoice_feed).
  */
 export const NAV_GROUPS: NavGroup[] = [
   {
     label: "Operate",
     items: [
       { label: "Overview", to: "/", icon: LayoutGrid },
-      { label: "Formation pipeline", to: "/pipeline", icon: Workflow, count: 18 },
+      { label: "Formation pipeline", to: "/pipeline", icon: Workflow, countKey: "pipeline" },
       { label: "Series ledger", to: "/ledger", icon: ScrollText },
       { label: "EIN signatories", to: "/signatories", icon: PenLine },
     ],
@@ -43,7 +42,7 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     label: "Compliance",
     items: [
-      { label: "Alerts", to: "/alerts", icon: ShieldAlert, count: 4, urgent: true },
+      { label: "Alerts", to: "/alerts", icon: ShieldAlert, countKey: "alerts", urgent: true },
       { label: "Filings", to: "/filings", icon: FileText },
       { label: "Investors & KYC", to: "/investors", icon: Users },
     ],
@@ -52,7 +51,7 @@ export const NAV_GROUPS: NavGroup[] = [
     label: "Money",
     items: [
       { label: "Capital calls", to: "/capital-calls", icon: Banknote },
-      { label: "Billing", to: "/billing", icon: ReceiptText, count: 41 },
+      { label: "Billing", to: "/billing", icon: ReceiptText, countKey: "billing" },
     ],
   },
 ];

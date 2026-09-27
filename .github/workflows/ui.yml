@@ -1,0 +1,33 @@
+name: UI build
+
+on:
+  push:
+    branches: ["main"]
+    paths: ["ui/**", ".github/workflows/ui.yml"]
+  pull_request:
+    branches: ["main"]
+    paths: ["ui/**", ".github/workflows/ui.yml"]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ui
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Install
+        run: npm ci
+
+      - name: Type check and build
+        run: npm run build

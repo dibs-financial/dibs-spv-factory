@@ -1,21 +1,16 @@
-import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
-import type {
-  BillingEventRow,
-  DealConfigurationRow,
-  EINRequestRow,
-  LedgerRow,
-  PricingTier,
-} from "../../../schemas/types.ts";
+import type { DealConfigurationRow, EINRequestRow, LedgerRow } from "../../../schemas/types.ts";
 import {
   administrationCharges,
   type Charge,
   chargeForLedgerEvent,
+  dedupeBillableEvents,
   einManualFilingCharge,
   lateFilingCharge,
-  type ResolvedFeeSchedule,
+  registeredConversionCharge,
   resolveFeeSchedule,
 } from "../_shared/billing.ts";
-import { isUniqueViolation, unwrap } from "../_shared/records.ts";
+import { existingRefs, insertCharge, loadSchedules } from "../_shared/billingStore.ts";
+import { selectAll } from "../_shared/records.ts";
 import { serveRunner } from "../_shared/runner.ts";
 
 /**
@@ -27,15 +22,25 @@ import { serveRunner } from "../_shared/runner.ts";
  *     stopping at WIND_DOWN
  *   - late Form D remediation when a filing follows an OVERDUE state change
  *   - manual SS-4 filings (EIN issued off the ONLINE channel)
+ *   - registered-series conversion, once per SPV whose deal_configurations
+ *     series_type is REGISTERED
  * Fee schedule per SPV comes from deal_configurations.fee_schedule, falling
  * back to the tier default. Every charge carries a unique source_ref, so the
  * runner is idempotent: existing rows are skipped and a concurrent insert of
  * the same ref is treated as already billed. PENDING rows are the invoice
  * feed (view billing_invoice_feed); this runner never marks anything
  * invoiced or paid, and never touches the ledger.
+ *
+ * The whole billable history is read on every run, paging through PostgREST's
+ * row limit: a formation event must stay visible for as long as its series
+ * earns anniversary fees, and a late run must still catch every event since
+ * the last one. A repeat SERIES_CREATED for an SPV, or a repeat KYC_PASS for
+ * an investor, is not billed again (dedupeBillableEvents).
+ *
+ * Audit packages are billed by verifySeriesLedger when one is requested, not
+ * here.
  */
 const BILLABLE_EVENTS = ["SERIES_CREATED", "KYC_PASS", "FORM_D_FILED", "BLUE_SKY_FILED"] as const;
-const LEDGER_SCAN_LIMIT = 5000;
 
 serveRunner("dibs-billing", async ({ db, now }) => {
   const summary = {
@@ -47,28 +52,42 @@ serveRunner("dibs-billing", async ({ db, now }) => {
     default_tier_spvs: [] as string[],
   };
 
-  const events = unwrap(
-    await db.from("series_registry_log").select("*").in("event_type", [
+  const events = await selectAll<LedgerRow>((from, to) =>
+    db.from("series_registry_log").select("*").in("event_type", [
       ...BILLABLE_EVENTS,
       "WIND_DOWN",
       "STATE_CHANGE",
-    ]).order("created_at", { ascending: false }).limit(LEDGER_SCAN_LIMIT),
-  ) as LedgerRow[];
+    ]).order("created_at", { ascending: true }).order("id", { ascending: true }).range(from, to)
+  );
   const bySpv = new Map<string, LedgerRow[]>();
+  const seenIds = new Set<string>();
   for (const e of events) {
+    if (seenIds.has(e.id)) continue;
+    seenIds.add(e.id);
     const list = bySpv.get(e.spv_id) ?? [];
     list.push(e);
     bySpv.set(e.spv_id, list);
   }
 
-  const einRequests = unwrap(
-    await db.from("ein_requests").select("*").eq("status", "ISSUED").neq("submission_channel", "ONLINE").not(
+  const einRequests = await selectAll<EINRequestRow>((from, to) =>
+    db.from("ein_requests").select("*").eq("status", "ISSUED").neq("submission_channel", "ONLINE").not(
       "submission_channel",
       "is",
       null,
-    ),
-  ) as EINRequestRow[];
+    ).order("id", { ascending: true }).range(from, to)
+  );
   for (const r of einRequests) if (!bySpv.has(r.spv_id)) bySpv.set(r.spv_id, []);
+
+  const registered = await selectAll<Pick<DealConfigurationRow, "spv_id" | "series_type" | "updated_at">>((
+    from,
+    to,
+  ) =>
+    db.from("deal_configurations").select("spv_id,series_type,updated_at").eq("series_type", "REGISTERED").order(
+      "spv_id",
+    ).range(from, to)
+  );
+  const registeredBySpv = new Map(registered.map((r) => [r.spv_id, r]));
+  for (const r of registered) if (!bySpv.has(r.spv_id)) bySpv.set(r.spv_id, []);
 
   const schedules = await loadSchedules(db, [...bySpv.keys()]);
 
@@ -80,7 +99,7 @@ serveRunner("dibs-billing", async ({ db, now }) => {
     const dealId = schedules.get(spvId)?.dealId ?? null;
 
     const charges: Charge[] = [];
-    for (const e of spvEvents) {
+    for (const e of dedupeBillableEvents(spvEvents)) {
       const c = chargeForLedgerEvent(e, s);
       if (c) charges.push(c);
     }
@@ -89,7 +108,9 @@ serveRunner("dibs-billing", async ({ db, now }) => {
       e.event_type === "SERIES_CREATED"
     ).sort((a, b) => a.sequence - b.sequence)[0];
     if (formation) {
-      const windDown = spvEvents.find((e) => e.event_type === "WIND_DOWN")?.event_timestamp ?? null;
+      const windDown = spvEvents.filter((e) => e.event_type === "WIND_DOWN").sort((a, b) =>
+        a.sequence - b.sequence
+      )[0]?.event_timestamp ?? null;
       charges.push(...administrationCharges(spvId, formation.event_timestamp, now, s, windDown));
     }
 
@@ -105,6 +126,12 @@ serveRunner("dibs-billing", async ({ db, now }) => {
 
     for (const r of einRequests.filter((r) => r.spv_id === spvId)) {
       const c = einManualFilingCharge(r, s);
+      if (c) charges.push(c);
+    }
+
+    const config = registeredBySpv.get(spvId);
+    if (config) {
+      const c = registeredConversionCharge(config, s);
       if (c) charges.push(c);
     }
 
@@ -127,59 +154,3 @@ serveRunner("dibs-billing", async ({ db, now }) => {
 
   return summary;
 });
-
-async function loadSchedules(
-  db: SupabaseClient,
-  spvIds: string[],
-): Promise<Map<string, ResolvedFeeSchedule & { dealId: string | null }>> {
-  const out = new Map<string, ResolvedFeeSchedule & { dealId: string | null }>();
-  for (let i = 0; i < spvIds.length; i += 200) {
-    const rows = unwrap(
-      await db.from("deal_configurations").select("spv_id,deal_id,fee_schedule").in("spv_id", spvIds.slice(i, i + 200)),
-    ) as Pick<DealConfigurationRow, "spv_id" | "deal_id" | "fee_schedule">[];
-    for (const row of rows) out.set(row.spv_id, { ...resolveFeeSchedule(row.fee_schedule), dealId: row.deal_id });
-  }
-  return out;
-}
-
-async function existingRefs(db: SupabaseClient, refs: string[]): Promise<Set<string>> {
-  const found = new Set<string>();
-  for (let i = 0; i < refs.length; i += 200) {
-    const rows = unwrap(
-      await db.from("billing_events").select("source_ref").in("source_ref", refs.slice(i, i + 200)),
-    ) as Pick<BillingEventRow, "source_ref">[];
-    for (const r of rows) found.add(r.source_ref);
-  }
-  return found;
-}
-
-async function insertCharge(
-  db: SupabaseClient,
-  spvId: string,
-  dealId: string | null,
-  tier: PricingTier,
-  tierSource: "deal" | "default",
-  c: Charge,
-): Promise<boolean> {
-  const { error } = await db.from("billing_events").insert({
-    spv_id: spvId,
-    deal_id: dealId,
-    charge_type: c.charge_type,
-    tier,
-    tier_source: tierSource,
-    quantity: c.quantity,
-    unit_amount: c.unit_amount,
-    amount: c.amount,
-    currency: "USD",
-    description: c.description,
-    source_ref: c.source_ref,
-    source_event_id: c.source_event_id,
-    period_start: c.period_start ?? null,
-    period_end: c.period_end ?? null,
-    occurred_at: c.occurred_at,
-    status: "PENDING",
-  });
-  if (!error) return true;
-  if (isUniqueViolation(error)) return false;
-  throw error;
-}

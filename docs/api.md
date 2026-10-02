@@ -30,7 +30,9 @@ All bodies are JSON objects. All responses are JSON with `success` (boolean) and
 ### `GET /factoryInfo`
 Configuration and health. Any signed-in user.
 
-Response: `factory`, `version`, `platform`, `base_url`, `tenant_id`, `env`, `allowed_roles`, `caller { is_service, roles }`, `functions[] { name, method, url }`, `form_d_window_days`, `ledger_hash_preimage`.
+Response: `factory`, `version`, `platform`, `base_url`, `tenant_id`, `env`, `allowed_roles`, `caller { is_service, roles }`, `functions[] { name, method, url }`, `form_d_window_days`, `ledger_hash_preimage`, `rush_track { available, min_available_signatories }`.
+
+`rush_track.available` is whether the 72-hour track may be offered right now (at least 3 EIN signatories available on the IRS Eastern day); hide the option when it is `false`. It is `null` if the check could not run. Only the yes/no is reported, never the pool size.
 
 ### `GET /checkMasterEntityLiabilityNotice`
 Statutory kill-switch. Resolves the single ACTIVE master Delaware Series LLC.
@@ -52,11 +54,13 @@ Body: `spv_id` (required), `event_type` (one of the ledger event types, required
 Response: `entry_id`, `actor`, `hash`, `previous_hash`, `sequence`, `timestamp`, `attempts`, `hash_preimage`. Hash = SHA-256 of `previous_hash|spv_id|event_type|timestamp|canonical_json(event_data)`.
 
 ### `POST /verifySeriesLedger`
-Read-only chain verification.
+Chain verification. Read-only unless an audit package is requested.
 
-Body: `spv_id` (required).
+Body: `spv_id` (required); `audit_package` (boolean, optional) — set when a client asks for an audit evidence package.
 
-Response: `valid`, `entries_checked`, `legacy_preimage_entries`, `head_hash`, `head_sequence`, `problems[] { entry_id, sequence, reason }`.
+Response: `valid`, `entries_checked`, `legacy_preimage_entries`, `head_hash`, `head_sequence`, `problems[] { entry_id, sequence, reason }`. With `audit_package: true`, also `audit_package { charged, source_ref?, amount?, currency?, reason? }`.
+
+With `audit_package: true`, a chain that verifies is billed one `AUDIT_PACKAGE` charge per ledger head (`audit:<spv>:<head sequence>`) at the SPV's `audit_package_fee`. Asking again before a new entry is appended does not bill again. An invalid chain, an empty ledger, or a tier where the package is included (PLATFORM) is never billed; `reason` says why. The ledger itself is never written.
 
 ### `POST /logAlert`
 The covenant monitor's only write path.

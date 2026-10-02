@@ -3,7 +3,7 @@ import { isOneOf, LEDGER_EVENT_TYPES, LEDGER_GENESIS_HASH } from "../../../schem
 import type { LedgerRow } from "../../../schemas/types.ts";
 import { HttpError } from "./errors.ts";
 import { computeLedgerHash } from "./hash.ts";
-import { isUniqueViolation, toMillis, unwrap } from "./records.ts";
+import { isUniqueViolation, selectAll, toMillis, unwrap } from "./records.ts";
 
 export type { LedgerRow };
 
@@ -21,20 +21,10 @@ export function nextSequence(latest: LedgerRow | null | undefined): number {
 }
 
 /** Every ledger entry for an SPV, oldest first, paging through PostgREST's row limit. */
-export async function fetchLedger(db: SupabaseClient, spvId: string): Promise<LedgerRow[]> {
-  const pageSize = 1000;
-  const all: LedgerRow[] = [];
-  for (let from = 0;; from += pageSize) {
-    const page = unwrap(
-      await db.from(TABLE).select("*").eq("spv_id", spvId).order("sequence", { ascending: true }).range(
-        from,
-        from + pageSize - 1,
-      ),
-    ) as LedgerRow[];
-    all.push(...page);
-    if (page.length < pageSize) break;
-  }
-  return all;
+export function fetchLedger(db: SupabaseClient, spvId: string): Promise<LedgerRow[]> {
+  return selectAll<LedgerRow>((from, to) =>
+    db.from(TABLE).select("*").eq("spv_id", spvId).order("sequence", { ascending: true }).range(from, to)
+  );
 }
 
 export async function getLatestLedgerEntry(db: SupabaseClient, spvId: string): Promise<LedgerRow | null> {
@@ -135,4 +125,20 @@ export function escalationState(entries: LedgerRow[]): EscalationState {
   if (!resolution) return { active: true, escalation };
   const active = compareNewestFirst(escalation, resolution) < 0;
   return { active, escalation, resolution };
+}
+
+/**
+ * The latest KYC_PASS / KYC_FAIL per investor per SPV. Events are keyed on
+ * event_data.investor_id, so one investor's pass never hides another's
+ * failure; events without an investor_id share one SPV-level key.
+ */
+export function latestKycOutcomes<E extends Pick<LedgerRow, "spv_id" | "sequence" | "event_data">>(events: E[]): E[] {
+  const latest = new Map<string, E>();
+  for (const e of events) {
+    const investor = typeof e.event_data.investor_id === "string" ? e.event_data.investor_id : "*";
+    const key = `${e.spv_id}\u0000${investor}`;
+    const current = latest.get(key);
+    if (!current || e.sequence > current.sequence) latest.set(key, e);
+  }
+  return [...latest.values()];
 }

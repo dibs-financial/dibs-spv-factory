@@ -13,7 +13,7 @@ import { raiseAlert } from "../_shared/alerts.ts";
 import { evaluateFormationGate } from "../_shared/gate.ts";
 import { appendLedgerEntry, type LedgerRow } from "../_shared/ledger.ts";
 import { decideTransition, type PipelineFacts } from "../_shared/pipeline.ts";
-import { unwrap } from "../_shared/records.ts";
+import { selectAll, unwrap } from "../_shared/records.ts";
 import { serveRunner } from "../_shared/runner.ts";
 
 /**
@@ -46,9 +46,12 @@ serveRunner("dibs-spv-formation-pipeline", async ({ db, now }) => {
 
   summary.enrolled = await enrolNewSpvs(db);
 
-  const rows = unwrap(
-    await db.from("spv_pipeline").select("*").neq("stage", "INVESTOR_READY").order("created_at"),
-  ) as SpvPipelineRow[];
+  const rows = await selectAll<SpvPipelineRow>((from, to) =>
+    db.from("spv_pipeline").select("*").neq("stage", "INVESTOR_READY").order("created_at").order("spv_id").range(
+      from,
+      to,
+    )
+  );
 
   for (const row of rows) {
     summary.evaluated += 1;
@@ -122,8 +125,13 @@ serveRunner("dibs-spv-formation-pipeline", async ({ db, now }) => {
 });
 
 async function enrolNewSpvs(db: SupabaseClient): Promise<number> {
-  const ledgerSpvs = unwrap(await db.from("series_registry_log").select("spv_id")) as Array<{ spv_id: string }>;
-  const known = unwrap(await db.from("spv_pipeline").select("spv_id")) as Array<{ spv_id: string }>;
+  // Paged: PostgREST caps a select at 1000 rows, and an SPV beyond that would never be enrolled.
+  const ledgerSpvs = await selectAll<{ spv_id: string }>((from, to) =>
+    db.from("series_registry_log").select("spv_id").order("id").range(from, to)
+  );
+  const known = await selectAll<{ spv_id: string }>((from, to) =>
+    db.from("spv_pipeline").select("spv_id").order("spv_id").range(from, to)
+  );
   const knownSet = new Set(known.map((k) => k.spv_id));
   const fresh = [...new Set(ledgerSpvs.map((l) => l.spv_id))].filter((id) => !knownSet.has(id));
   if (fresh.length === 0) return 0;

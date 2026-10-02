@@ -24,7 +24,7 @@ Built on Lovable (Lovable Cloud, which runs on Supabase):
 - Schedules — pg_cron jobs call the functions with the service-role key (see `workflows/README.md`)
 - Deal-model tables (Sponsor, Spv, Investor, Subscription, KycSession, ComplianceRecord, FormationStage) live in the same database but are not defined in this repository; factory functions never write them
 
-Integrity that used to be approximated in application code is now enforced by the database: the ledger is append-only by trigger, has one head per SPV by unique constraint, exactly one ACTIVE master entity, one Form D filing per SPV, one open EIN request per SPV, and one capital call per subscription.
+Integrity that used to be approximated in application code is now enforced by the database: the ledger is append-only by trigger, has one head per SPV by unique constraint, exactly one ACTIVE master entity, one Form D filing per SPV, one open EIN request per SPV, one capital call per subscription, and no deal put on the 72-hour track while fewer than three EIN signatories are available.
 
 ## Key design decisions
 

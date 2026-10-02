@@ -1,0 +1,125 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * DIBS SPV Factory theme, "Ledger & Ivory".
+ * Variable names follow shadcn/ui (what Lovable generates), so the standard
+ * components pick the theme up unchanged. Values are HSL channels.
+ * Status pairs (fg on tint) are chosen for 4.5:1 contrast or better.
+ */
+@layer base {
+  :root {
+    --background: 43 26% 95%; /* paper #F5F3EE */
+    --foreground: 218 22% 10%; /* graphite #14181F */
+
+    --card: 0 0% 100%;
+    --card-foreground: 218 22% 10%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 218 22% 10%;
+
+    --primary: 176 79% 20%; /* vault #0B5D57 */
+    --primary-foreground: 0 0% 100%;
+    --primary-hover: 176 81% 16%;
+    --primary-pressed: 175 82% 13%;
+    --primary-tint: 171 30% 92%;
+
+    --secondary: 0 0% 100%;
+    --secondary-foreground: 218 22% 10%;
+
+    --muted: 42 28% 91%;
+    --muted-foreground: 221 13% 34%; /* #4B5261, body-secondary text */
+    --subtle-foreground: 224 9% 46%; /* #6A7080, captions; 4.9:1 on white */
+
+    --accent: 171 30% 92%;
+    --accent-foreground: 176 81% 16%;
+
+    --destructive: 4 76% 40%; /* #B42318 */
+    --destructive-foreground: 0 0% 100%;
+
+    --border: 41 22% 86%; /* hairline #E3DED3 */
+    --input: 41 19% 80%; /* control border #D6D0C3 */
+    --ring: 176 79% 20%;
+
+    --radius: 0.625rem; /* 10px; sm 6px, lg 14px */
+
+    --topbar: 45 33% 98%;
+    --brass: 39 41% 49%; /* decorative only, never text */
+
+    --success: 150 66% 27%;
+    --success-tint: 140 32% 93%;
+    --warning: 36 100% 27%;
+    --warning-tint: 39 79% 92%;
+    --critical: 4 76% 40%;
+    --critical-tint: 5 73% 94%;
+    --info: 221 70% 41%;
+    --info-tint: 219 71% 95%;
+    --neutral-status: 221 29% 28%;
+    --neutral-status-tint: 218 33% 95%;
+
+    /* Navigation and dark panels */
+    --sidebar-background: 218 46% 10%; /* ink #0E1726 */
+    --sidebar-foreground: 220 20% 82%;
+    --sidebar-muted: 222 13% 60%;
+    --sidebar-primary: 43 26% 95%;
+    --sidebar-primary-foreground: 218 46% 10%;
+    --sidebar-accent: 221 41% 18%; /* active item */
+    --sidebar-accent-foreground: 43 26% 95%;
+    --sidebar-hover: 222 45% 16%;
+    --sidebar-border: 223 39% 23%;
+    --sidebar-ring: 167 40% 64%;
+  }
+
+  .dark {
+    --background: 218 46% 7%;
+    --foreground: 43 26% 95%;
+    --card: 220 40% 11%;
+    --card-foreground: 43 26% 95%;
+    --popover: 220 40% 11%;
+    --popover-foreground: 43 26% 95%;
+    --primary: 167 45% 58%;
+    --primary-foreground: 218 46% 8%;
+    --primary-hover: 167 45% 64%;
+    --primary-pressed: 167 45% 52%;
+    --primary-tint: 174 40% 16%;
+    --secondary: 220 40% 11%;
+    --secondary-foreground: 43 26% 95%;
+    --muted: 221 35% 15%;
+    --muted-foreground: 220 20% 75%;
+    --subtle-foreground: 222 13% 62%;
+    --accent: 174 40% 16%;
+    --accent-foreground: 167 45% 72%;
+    --destructive: 4 80% 62%;
+    --destructive-foreground: 218 46% 8%;
+    --border: 223 30% 20%;
+    --input: 223 30% 26%;
+    --ring: 167 45% 58%;
+    --topbar: 220 44% 9%;
+    --success: 152 45% 62%;
+    --success-tint: 152 40% 14%;
+    --warning: 39 85% 62%;
+    --warning-tint: 36 60% 14%;
+    --critical: 4 80% 68%;
+    --critical-tint: 4 50% 16%;
+    --info: 219 85% 72%;
+    --info-tint: 221 50% 17%;
+    --neutral-status: 220 20% 80%;
+    --neutral-status-tint: 221 30% 18%;
+    --sidebar-background: 218 50% 5%;
+    --sidebar-hover: 222 45% 12%;
+    --sidebar-accent: 221 41% 15%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background font-sans text-foreground antialiased;
+    font-feature-settings: "tnum" 1;
+  }
+  :focus-visible {
+    @apply outline-none ring-2 ring-ring ring-offset-2 ring-offset-background;
+  }
+}

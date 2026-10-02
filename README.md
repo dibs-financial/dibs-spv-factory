@@ -54,6 +54,7 @@ supabase/functions/_shared/             (auth, validation, hash chain, first-sal
 supabase/functions/.env.example         (Lovable Cloud secrets manifest)
 scripts/lovable-secrets.sh              (sets the secrets with the Supabase CLI)
 workflows/README.md
+ui/                                     (operator console UI kit for Lovable: theme, buttons, navigation — MIT)
 deno.json                               (fmt / lint / check / test tasks)
 
 ## Status

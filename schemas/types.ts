@@ -183,14 +183,18 @@ export type BillingChargeType =
   | "LATE_FILING_REMEDIATION"
   | "EIN_MANUAL_FILING"
   | "REGISTERED_SERIES_CONVERSION"
-  | "AUDIT_PACKAGE";
+  | "AUDIT_PACKAGE"
+  | "PLATFORM_LICENSE"
+  | "PLATFORM_ADDITIONAL_SERIES";
 
 export interface BillingEventRow extends ServerFields {
-  spv_id: string;
+  /** null for platform license charges, which belong to platform_license_id instead. */
+  spv_id: string | null;
+  platform_license_id: string | null;
   deal_id: string | null;
   charge_type: BillingChargeType;
   tier: PricingTier;
-  tier_source: "deal" | "default";
+  tier_source: "deal" | "default" | "license";
   quantity: number;
   unit_amount: number;
   amount: number;
@@ -213,5 +217,24 @@ export interface DealConfigurationRow extends ServerFields {
   deal_id: string | null;
   fee_schedule: Record<string, unknown>;
   series_type: "PROTECTED" | "REGISTERED";
+  /** The platform license this series runs under; counts toward its included series. */
+  platform_license_id: string | null;
+  updated_at: string;
+}
+
+/** A white-label / API operator's license. Price columns are locked until price_locked_until. */
+export interface PlatformLicenseRow extends ServerFields {
+  operator_id: string;
+  operator_name: string;
+  /** YYYY-MM-DD; first day of license year 0. */
+  start_date: string;
+  /** YYYY-MM-DD; no license year starting on or after it is billed. */
+  end_date: string | null;
+  annual_fee: number;
+  included_series: number;
+  additional_series_fee: number;
+  price_locked_until: string;
+  status: "ACTIVE" | "TERMINATED";
+  currency: string;
   updated_at: string;
 }

@@ -59,6 +59,8 @@ export const DEFAULT_FEE_SCHEDULES: Record<PricingTier, FeeSchedule> = {
  * Platform license (white-label / API use of the engine). One published
  * price, no introductory discounts, 24-month price lock for every operator.
  * Decided 2026-09-21; see docs/pricing.md "Decisions".
+ * The database enforces the same numbers (public.platform_license_published_price()
+ * in migration 20260926020000_platform_licenses.sql); keep the two in sync.
  */
 export const PLATFORM_LICENSE = {
   annual_fee: 60000,

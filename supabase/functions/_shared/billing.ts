@@ -278,3 +278,80 @@ export function auditPackageCharge(
     { source_event_id: pkg.head_entry_id },
   );
 }
+
+/** The license terms platformLicenseCharges needs; prices come from the (locked) license row. */
+export interface PlatformLicenseTerms {
+  id: string;
+  start_date: string;
+  end_date: string | null;
+  annual_fee: number;
+  included_series: number;
+  additional_series_fee: number;
+}
+
+/** When a series under a license was formed and, if it was, wound down. */
+export interface SeriesSpan {
+  spv_id: string;
+  formed_at: string;
+  wound_down_at: string | null;
+}
+
+/**
+ * Platform license charges, per license year n (start_date + n years):
+ *   - the annual fee, billed when the year starts. Key license:<id>:<n>.
+ *   - one additional-series charge for each series beyond included_series
+ *     that was active at any point in the year: formed before the year (or
+ *     the license) ended and not wound down before the year started.
+ *     Key license_series:<id>:<n>:<k> for the k-th series of the year, so the
+ *     number of charges follows the number of series whichever series are
+ *     linked late; each is dated when that k-th series was formed (or when
+ *     the year started, if later).
+ * Nothing is billed for a year starting after `now` or on or after end_date.
+ * Prices come from the license row, which the database locks for 24 months.
+ */
+export function platformLicenseCharges(license: PlatformLicenseTerms, series: SeriesSpan[], now: Date): Charge[] {
+  const start = new Date(`${license.start_date}T00:00:00.000Z`);
+  if (!Number.isFinite(start.getTime())) return [];
+  const end = license.end_date ? toMillis(`${license.end_date}T00:00:00.000Z`) : Number.POSITIVE_INFINITY;
+  const annual = Number(license.annual_fee);
+  const included = Number(license.included_series);
+  const extraFee = Number(license.additional_series_fee);
+  const out: Charge[] = [];
+  for (let n = 0;; n++) {
+    const yearStart = addYears(start, n);
+    if (yearStart.getTime() > now.getTime() || yearStart.getTime() >= end) break;
+    const yearEnd = addYears(start, n + 1);
+    const period = { period_start: isoDate(yearStart), period_end: isoDate(new Date(yearEnd.getTime() - DAY_MS)) };
+    if (annual > 0) {
+      out.push(charge(
+        "PLATFORM_LICENSE",
+        annual,
+        `Platform license, year ${n + 1} (${included} series included)`,
+        `license:${license.id}:${n}`,
+        yearStart.toISOString(),
+        period,
+      ));
+    }
+    if (extraFee <= 0) continue;
+    const cutoff = Math.min(yearEnd.getTime(), end, now.getTime());
+    const active = series
+      .filter((sp) => {
+        const formed = toMillis(sp.formed_at);
+        if (formed === 0 || formed >= cutoff) return false;
+        return !sp.wound_down_at || toMillis(sp.wound_down_at) >= yearStart.getTime();
+      })
+      .sort((a, b) => toMillis(a.formed_at) - toMillis(b.formed_at) || a.spv_id.localeCompare(b.spv_id));
+    for (let k = included + 1; k <= active.length; k++) {
+      const formed = Math.max(toMillis(active[k - 1].formed_at), yearStart.getTime());
+      out.push(charge(
+        "PLATFORM_ADDITIONAL_SERIES",
+        extraFee,
+        `Platform license, year ${n + 1}: additional series ${k} (beyond ${included} included)`,
+        `license_series:${license.id}:${n}:${k}`,
+        new Date(formed).toISOString(),
+        period,
+      ));
+    }
+  }
+  return out;
+}

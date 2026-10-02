@@ -41,18 +41,23 @@ export async function existingRefs(db: SupabaseClient, refs: string[]): Promise<
   return found;
 }
 
+/** Who a charge is billed against: an SPV (and its deal), or a platform license. */
+export type ChargeSubject =
+  | { spv_id: string; deal_id: string | null; platform_license_id?: null }
+  | { spv_id?: null; deal_id?: null; platform_license_id: string };
+
 /** Inserts a PENDING charge. False when its source_ref is already billed (unique violation). */
 export async function insertCharge(
   db: SupabaseClient,
-  spvId: string,
-  dealId: string | null,
+  subject: ChargeSubject,
   tier: PricingTier,
-  tierSource: "deal" | "default",
+  tierSource: BillingEventRow["tier_source"],
   c: Charge,
 ): Promise<boolean> {
   const { error } = await db.from("billing_events").insert({
-    spv_id: spvId,
-    deal_id: dealId,
+    spv_id: subject.spv_id ?? null,
+    deal_id: subject.deal_id ?? null,
+    platform_license_id: subject.platform_license_id ?? null,
     charge_type: c.charge_type,
     tier,
     tier_source: tierSource,

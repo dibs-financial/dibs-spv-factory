@@ -1,4 +1,11 @@
-import type { DealConfigurationRow, EINRequestRow, LedgerRow } from "../../../schemas/types.ts";
+import type {
+  BillingEventRow,
+  DealConfigurationRow,
+  EINRequestRow,
+  LedgerRow,
+  PlatformLicenseRow,
+  PricingTier,
+} from "../../../schemas/types.ts";
 import {
   administrationCharges,
   type Charge,
@@ -6,10 +13,12 @@ import {
   dedupeBillableEvents,
   einManualFilingCharge,
   lateFilingCharge,
+  platformLicenseCharges,
   registeredConversionCharge,
   resolveFeeSchedule,
+  type SeriesSpan,
 } from "../_shared/billing.ts";
-import { existingRefs, insertCharge, loadSchedules } from "../_shared/billingStore.ts";
+import { type ChargeSubject, existingRefs, insertCharge, loadSchedules } from "../_shared/billingStore.ts";
 import { selectAll } from "../_shared/records.ts";
 import { serveRunner } from "../_shared/runner.ts";
 
@@ -24,6 +33,9 @@ import { serveRunner } from "../_shared/runner.ts";
  *   - manual SS-4 filings (EIN issued off the ONLINE channel)
  *   - registered-series conversion, once per SPV whose deal_configurations
  *     series_type is REGISTERED
+ *   - platform licenses: the annual fee per license year, and one charge per
+ *     series beyond the included count in each year (platformLicenseCharges).
+ *     These rows carry platform_license_id and no spv_id.
  * Fee schedule per SPV comes from deal_configurations.fee_schedule, falling
  * back to the tier default. Every charge carries a unique source_ref, so the
  * runner is idempotent: existing rows are skipped and a concurrent insert of
@@ -50,6 +62,28 @@ serveRunner("dibs-billing", async ({ db, now }) => {
     by_type: {} as Record<string, number>,
     total_created_amount: 0,
     default_tier_spvs: [] as string[],
+    platform_licenses: 0,
+    // configuration to fix: PLATFORM-tier deals with no license, licensed deals on another tier
+    platform_tier_spvs_without_license: [] as string[],
+    licensed_spvs_not_on_platform_tier: [] as string[],
+  };
+
+  const record = async (
+    charges: Charge[],
+    subject: ChargeSubject,
+    tier: PricingTier,
+    tierSource: BillingEventRow["tier_source"],
+  ) => {
+    const existing = await existingRefs(db, charges.map((c) => c.source_ref));
+    for (const c of charges) {
+      if (existing.has(c.source_ref) || !(await insertCharge(db, subject, tier, tierSource, c))) {
+        summary.skipped_existing += 1;
+        continue;
+      }
+      summary.created += 1;
+      summary.by_type[c.charge_type] = (summary.by_type[c.charge_type] ?? 0) + 1;
+      summary.total_created_amount = Math.round((summary.total_created_amount + c.amount) * 100) / 100;
+    }
   };
 
   const events = await selectAll<LedgerRow>((from, to) =>
@@ -104,15 +138,8 @@ serveRunner("dibs-billing", async ({ db, now }) => {
       if (c) charges.push(c);
     }
 
-    const formation = spvEvents.filter((e) =>
-      e.event_type === "SERIES_CREATED"
-    ).sort((a, b) => a.sequence - b.sequence)[0];
-    if (formation) {
-      const windDown = spvEvents.filter((e) => e.event_type === "WIND_DOWN").sort((a, b) =>
-        a.sequence - b.sequence
-      )[0]?.event_timestamp ?? null;
-      charges.push(...administrationCharges(spvId, formation.event_timestamp, now, s, windDown));
-    }
+    const span = seriesSpan(spvId, spvEvents);
+    if (span) charges.push(...administrationCharges(spvId, span.formed_at, now, s, span.wound_down_at));
 
     const overdueSeqs = spvEvents
       .filter((e) =>
@@ -135,22 +162,60 @@ serveRunner("dibs-billing", async ({ db, now }) => {
       if (c) charges.push(c);
     }
 
-    const existing = await existingRefs(db, charges.map((c) => c.source_ref));
-    for (const c of charges) {
-      if (existing.has(c.source_ref)) {
-        summary.skipped_existing += 1;
-        continue;
-      }
-      const inserted = await insertCharge(db, spvId, dealId, resolved.schedule.tier, resolved.source, c);
-      if (!inserted) {
-        summary.skipped_existing += 1;
-        continue;
-      }
-      summary.created += 1;
-      summary.by_type[c.charge_type] = (summary.by_type[c.charge_type] ?? 0) + 1;
-      summary.total_created_amount = Math.round((summary.total_created_amount + c.amount) * 100) / 100;
+    await record(charges, { spv_id: spvId, deal_id: dealId }, s.tier, resolved.source);
+  }
+
+  // Platform licenses
+  const licenses = await selectAll<PlatformLicenseRow>((from, to) =>
+    db.from("platform_licenses").select("*").order("id").range(from, to)
+  );
+  const linked = await selectAll<Pick<DealConfigurationRow, "spv_id" | "platform_license_id" | "fee_schedule">>((
+    from,
+    to,
+  ) =>
+    db.from("deal_configurations").select("spv_id,platform_license_id,fee_schedule").not(
+      "platform_license_id",
+      "is",
+      null,
+    ).order("spv_id").range(from, to)
+  );
+  const platformTier = await selectAll<Pick<DealConfigurationRow, "spv_id" | "platform_license_id">>((from, to) =>
+    db.from("deal_configurations").select("spv_id,platform_license_id").eq("fee_schedule->>tier", "PLATFORM").is(
+      "platform_license_id",
+      null,
+    ).order("spv_id").range(from, to)
+  );
+  summary.platform_tier_spvs_without_license.push(...platformTier.map((r) => r.spv_id));
+
+  const seriesByLicense = new Map<string, SeriesSpan[]>();
+  for (const row of linked) {
+    if (!row.platform_license_id) continue;
+    if (resolveFeeSchedule(row.fee_schedule).schedule.tier !== "PLATFORM") {
+      summary.licensed_spvs_not_on_platform_tier.push(row.spv_id);
     }
+    const span = seriesSpan(row.spv_id, bySpv.get(row.spv_id) ?? []);
+    if (!span) continue;
+    const list = seriesByLicense.get(row.platform_license_id) ?? [];
+    list.push(span);
+    seriesByLicense.set(row.platform_license_id, list);
+  }
+  for (const license of licenses) {
+    summary.platform_licenses += 1;
+    const charges = platformLicenseCharges(license, seriesByLicense.get(license.id) ?? [], now);
+    await record(charges, { platform_license_id: license.id }, "PLATFORM", "license");
   }
 
   return summary;
 });
+
+/** Formation (earliest SERIES_CREATED) and first WIND_DOWN; null for a series never formed. */
+function seriesSpan(spvId: string, events: LedgerRow[]): SeriesSpan | null {
+  const bySequence = [...events].sort((a, b) => a.sequence - b.sequence);
+  const formation = bySequence.find((e) => e.event_type === "SERIES_CREATED");
+  if (!formation) return null;
+  return {
+    spv_id: spvId,
+    formed_at: formation.event_timestamp,
+    wound_down_at: bySequence.find((e) => e.event_type === "WIND_DOWN")?.event_timestamp ?? null,
+  };
+}
